@@ -7,5 +7,24 @@ edition = "2021"
 bit_field = "*"
 cfg-if = "*"
 derive_more = "*"
+log = "*"
 paste = "*"
+spin = "*"
+uefi = { version = "*", features = ["exts"] }
 zerocopy = "*"
+
+[dependencies.goblin]
+version = "*"
+default-features = false
+features = ["elf64"]
+
+[dependencies.noto-sans-mono-bitmap]
+version = "*"
+default-features = false
+features = [
+  "regular",
+  "size_16",
+  "unicode-basic-latin",
+  # required for the fallback char '�'
+  "unicode-specials",
+]

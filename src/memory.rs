@@ -12,6 +12,7 @@ use derive_more::{
     LowerHex, Octal, Sub, SubAssign, UpperHex,
 };
 use paste::paste;
+use uefi::table::boot::{MemoryDescriptor, MemoryType};
 use zerocopy::FromBytes;
 
 const PAGE_SIZE: usize = 4096;
@@ -105,10 +106,10 @@ macro_rules! implement_address {
                     *self = $TypeName::new_canonical(self.0.saturating_sub(rhs));
                 }
             }
-            impl Into<usize> for $TypeName {
+            impl From<$TypeName> for usize {
                 #[inline]
-                fn into(self) -> usize {
-                    self.0
+                fn from(value: $TypeName) -> Self {
+                    value.0
                 }
             }
         }
@@ -250,7 +251,7 @@ impl Page {
     /// will give you the final PTE, from which you can extract the mapped
     /// [`Frame`]  using `PageTableEntry::pointed_frame()`.
     pub const fn p1_index(&self) -> usize {
-        (self.number >> 0) & 0x1FF
+        self.number & 0x1FF
     }
 }
 
@@ -388,3 +389,107 @@ macro_rules! implement_page_frame_range {
 
 implement_page_frame_range!(PageRange, "virtual", virt, Page, VirtualAddress);
 implement_page_frame_range!(FrameRange, "physical", phys, Frame, PhysicalAddress);
+
+pub struct FrameAllocator<'a, I> {
+    original: I,
+    memory_map: I,
+    current_descriptor: Option<&'a MemoryDescriptor>,
+    next_frame: Frame,
+}
+
+impl<'a, I> FrameAllocator<'a, I>
+where
+    I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
+{
+    pub fn new(memory_map: I) -> Self {
+        // Allocating frames below 0x10000 causes problems during AP startup.
+        let start_frame = Frame::containing_address(PhysicalAddress::new_canonical(0x10000));
+        Self::new_starting_at(start_frame, memory_map)
+    }
+
+    /// Creates a new frame allocator based on the given legacy memory regions.
+    /// Skips any frames before the given `frame`.
+    pub fn new_starting_at(frame: Frame, memory_map: I) -> Self {
+        Self {
+            original: memory_map.clone(),
+            memory_map,
+            current_descriptor: None,
+            next_frame: frame,
+        }
+    }
+
+    fn allocate_frame_from_descriptor(
+        &mut self,
+        descriptor: &'a MemoryDescriptor,
+    ) -> Option<Frame> {
+        let start_addr = PhysicalAddress::new_canonical(descriptor.phys_start as usize);
+        let start_frame = Frame::containing_address(start_addr);
+        let end_addr = start_addr + (descriptor.page_count as usize * PAGE_SIZE);
+        let end_frame = Frame::containing_address(end_addr - 1);
+
+        // increase self.next_frame to start_frame if smaller
+        if self.next_frame < start_frame {
+            self.next_frame = start_frame;
+        }
+
+        if self.next_frame < end_frame {
+            let ret = self.next_frame;
+            self.next_frame += 1;
+            Some(ret)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the number of memory regions in the underlying memory map.
+    ///
+    /// The function always returns the same value, i.e. the length doesn't
+    /// change after calls to `allocate_frame`.
+    pub fn len(&self) -> usize {
+        self.original.len()
+    }
+
+    /// Returns whether this memory map is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the largest detected physical memory address.
+    ///
+    /// Useful for creating a mapping for all physical memory.
+    pub fn max_phys_addr(&self) -> PhysicalAddress {
+        self.original
+            .clone()
+            .map(|descriptor| {
+                PhysicalAddress::new_canonical(
+                    descriptor.phys_start as usize + (descriptor.page_count as usize * PAGE_SIZE),
+                )
+            })
+            .max()
+            .unwrap()
+    }
+
+    fn allocate_frame(&mut self) -> Option<Frame> {
+        if let Some(current_descriptor) = self.current_descriptor {
+            match self.allocate_frame_from_descriptor(current_descriptor) {
+                Some(frame) => return Some(frame),
+                None => {
+                    self.current_descriptor = None;
+                }
+            }
+        }
+
+        // find next suitable descriptor
+        while let Some(descriptor) = self.memory_map.next() {
+            if descriptor.ty != MemoryType::CONVENTIONAL {
+                continue;
+            }
+            if let Some(frame) = self.allocate_frame_from_descriptor(descriptor) {
+                self.current_descriptor = Some(descriptor);
+                return Some(frame);
+            }
+        }
+
+        None
+    }
+}

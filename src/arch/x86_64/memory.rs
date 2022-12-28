@@ -1,10 +1,7 @@
 use bit_field::BitField;
 
 pub fn is_canonical_virtual_address(virt_addr: usize) -> bool {
-    match virt_addr.get_bits(47..64) {
-        0 | 0b1_1111_1111_1111_1111 => true,
-        _ => false,
-    }
+    matches!(virt_addr.get_bits(47..64), 0 | 0b1_1111_1111_1111_1111)
 }
 
 pub const fn canonicalize_virtual_address(virt_addr: usize) -> usize {
@@ -19,10 +16,7 @@ pub const fn canonicalize_virtual_address(virt_addr: usize) -> usize {
 }
 
 pub fn is_canonical_physical_address(phys_addr: usize) -> bool {
-    match phys_addr.get_bits(52..64) {
-        0 => true,
-        _ => false,
-    }
+    phys_addr.get_bits(52..64) == 0
 }
 
 pub const fn canonicalize_physical_address(phys_addr: usize) -> usize {

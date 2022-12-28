@@ -7,10 +7,7 @@ use bit_field::BitField;
 /// Our ASID is zero, so a "canonical" VA has
 /// the 16 most significant bits cleared.
 pub fn is_canonical_virtual_address(virt_addr: usize) -> bool {
-    match virt_addr.get_bits(48..64) {
-        0 => true,
-        _ => false,
-    }
+    virt_addr.get_bits(48..64) == 0
 }
 
 /// On aarch64, VAs are composed of an ASID
@@ -27,10 +24,7 @@ pub const fn canonicalize_virtual_address(virt_addr: usize) -> usize {
 /// physical addresses; "canonical" physical addresses
 /// have the 16 most significant bits cleared.
 pub fn is_canonical_physical_address(phys_addr: usize) -> bool {
-    match phys_addr.get_bits(48..64) {
-        0 => true,
-        _ => false,
-    }
+    phys_addr.get_bits(48..64) == 0
 }
 
 /// On aarch64, we configure the MMU to use 48-bit
