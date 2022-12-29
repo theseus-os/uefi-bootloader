@@ -42,7 +42,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let frame_buffer = get_frame_buffer(&system_table);
     if let Some(frame_buffer) = frame_buffer {
         init_logger(&frame_buffer);
-        log::info!("Using framebuffer at {:#x}", frame_buffer.start);
+        log::info!("using framebuffer at {:#x}", frame_buffer.start);
     }
 
     unsafe { SYSTEM_TABLE = None };
@@ -68,9 +68,20 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     kernel::load(handle, &system_table, &mut memory);
     log::info!("loaded kernel");
 
-    set_up_mappings(&mut memory);
+    set_up_mappings(&mut memory, &frame_buffer);
+    log::info!("setup memory mappings");
 
-    panic!();
+    create_boot_info();
+    log::info!("created boot info");
+
+    let context = Context {
+        page_table: todo!(),
+        stack_top: todo!(),
+        entry_point: todo!(),
+        boot_info: todo!(),
+    };
+
+    unsafe { context_switch(context) };
 }
 
 fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
@@ -116,7 +127,7 @@ fn init_logger(frame_buffer: &FrameBuffer) {
     log::set_max_level(log::LevelFilter::Trace);
 }
 
-fn set_up_mappings<'a, 'b, I>(memory: &'a mut Memory<'b, I>)
+fn set_up_mappings<'a, 'b, I>(memory: &'a mut Memory<'b, I>, frame_buffer: &Option<FrameBuffer>)
 where
     I: ExactSizeIterator<Item = &'b MemoryDescriptor> + Clone,
 {
@@ -146,6 +157,29 @@ where
         Frame::containing_address(PhysicalAddress::new_canonical(context_switch as usize)),
         PteFlags::PRESENT,
     );
+
+    let frame_buffer_address = frame_buffer.map(|frame_buffer| {
+        let start_virtual = memory.get_free_address(frame_buffer.info.len);
+
+        let start_page = Page::containing_address(start_virtual);
+        let end_page = Page::containing_address(start_virtual + frame_buffer.info.len - 1);
+
+        let start_frame =
+            Frame::containing_address(PhysicalAddress::new_canonical(frame_buffer.start));
+        let end_frame = Frame::containing_address(PhysicalAddress::new_canonical(
+            frame_buffer.start + frame_buffer.info.len - 1,
+        ));
+
+        for (page, frame) in (start_page..=end_page).zip(start_frame..=end_frame) {
+            // We don't need to allocate frames because the frame buffer is already reserved
+            // in the memory map.
+            memory.map(page, frame, PteFlags::PRESENT | PteFlags::WRITABLE);
+        }
+    });
+}
+
+fn create_boot_info() -> &'static mut BootInformation {
+    todo!();
 }
 
 unsafe fn context_switch(context: Context) -> ! {
