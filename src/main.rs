@@ -12,7 +12,7 @@ mod modules;
 mod util;
 
 use crate::{
-    info::{FrameBuffer, FrameBufferInfo},
+    info::{FrameBuffer, FrameBufferInfo, MemoryRegionKind},
     memory::{Frame, Memory, Page, PhysicalAddress, PteFlags, VirtualAddress},
 };
 use core::{alloc::Layout, arch::asm, fmt::Write, mem::MaybeUninit, ptr::NonNull, slice};
@@ -21,7 +21,7 @@ use uefi::{
     prelude::entry,
     proto::console::gop::{GraphicsOutput, PixelFormat},
     table::{
-        boot::MemoryDescriptor,
+        boot::{AllocateType, MemoryDescriptor, MemoryType},
         cfg::{ACPI2_GUID, ACPI_GUID},
         Boot, SystemTable,
     },
@@ -62,8 +62,20 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let page_table = memory.page_table();
 
-    let memory_map_len = system_table.boot_services().memory_map_size().map_size
-        + 8 * core::mem::size_of::<MemoryDescriptor>();
+    let memory_map_len = system_table.boot_services().memory_map_size().map_size + 8;
+
+    let memory_map_storage = {
+        let memory_map_size = memory_map_len * core::mem::size_of::<MemoryDescriptor>();
+        let pointer = system_table
+            .boot_services()
+            .allocate_pages(
+                AllocateType::AnyPages,
+                MemoryType::LOADER_DATA,
+                util::calculate_pages(memory_map_len),
+            )
+            .unwrap();
+        unsafe { slice::from_raw_parts_mut(pointer as *mut _, memory_map_size) }
+    };
 
     let BootInformationAllocation {
         size: boot_info_size,
@@ -73,34 +85,30 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         elf_sections: elf_sections_uninit,
     } = allocate_boot_info(memory, memory_map_len, modules, elf_sections);
 
-    // Zero the bytes so it is sound to interpret the array as initialised.
-    unsafe { core::ptr::write_bytes(memory_regions_uninit.as_mut_ptr(), 0, memory_map_len) };
-    let (empty_1, memory_regions, empty_2) = unsafe { memory_regions_uninit.align_to_mut::<u8>() };
-    assert!(empty_1.is_empty());
-    assert!(empty_2.is_empty());
-
-    // At this point memory_regions_uninit has been converted from a
-    // &mut [MaybeUninit<MemoryRegion>] to a &mut [u8].
-
-    let memory_regions_count = system_table
-        .exit_boot_services(handle, memory_regions)
+    let memory_map = system_table
+        .exit_boot_services(handle, memory_map_storage)
         .unwrap()
-        .1
-        .count();
+        .1;
 
-    // Turn the mutable reference into a pointer to adhere to aliasing rules.
-    let memory_regions_uninit = memory_regions_uninit.as_mut_ptr();
-    // TODO: This is defined behaviour right.
-    let memory_regions = unsafe {
-        core::slice::from_raw_parts_mut(
-            memory_regions_uninit as *mut MemoryRegion,
-            memory_regions_count,
-        )
-    };
-    // Now that we've asserted exclusive access over memory_regions, we cannot use
-    // this pointer.
-    drop(memory_regions_uninit);
+    let mut i = 0;
+    for memory_descriptor in memory_map {
+        memory_regions_uninit[i].write(MemoryRegion {
+            start: memory_descriptor.phys_start,
+            end: memory_descriptor.phys_start + 1,
+            kind: match memory_descriptor.ty {
+                MemoryType::CONVENTIONAL
+                | MemoryType::LOADER_CODE
+                | MemoryType::LOADER_DATA
+                | MemoryType::BOOT_SERVICES_CODE
+                | MemoryType::BOOT_SERVICES_DATA => MemoryRegionKind::Usable,
+                tag => MemoryRegionKind::UnknownUefi(tag.0),
+            },
+        });
+        i += 1;
+    }
 
+    let memory_regions =
+        unsafe { MaybeUninit::slice_assume_init_mut(&mut memory_regions_uninit[..i]) };
     let modules = MaybeUninit::write_slice(modules_uninit, modules);
     let elf_sections = MaybeUninit::write_slice(elf_sections_uninit, elf_sections);
 
@@ -115,7 +123,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         modules: modules.into(),
         elf_sections: elf_sections.into(),
     });
-    log::info!("created boot info");
+    log::info!("created boot info: {boot_info:x?}");
 
     log::info!("exited boot services");
 

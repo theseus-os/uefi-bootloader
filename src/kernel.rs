@@ -128,7 +128,7 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
     }
 
     fn handle_load_segment(&mut self, segment: ProgramHeader) {
-        log::info!("handling load segment: {segment:?}");
+        log::info!("loading segment: {segment:?}");
         let mut flags = PteFlags::PRESENT;
 
         // If the first bit isn't set
