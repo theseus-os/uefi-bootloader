@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![feature(step_trait, abi_efiapi, maybe_uninit_slice)]
 #![no_std]
+#![no_main]
 
 mod arch;
 mod info;
@@ -8,6 +9,7 @@ mod kernel;
 mod logger;
 mod memory;
 mod modules;
+mod util;
 
 use crate::{
     info::{FrameBuffer, FrameBufferInfo},
@@ -62,7 +64,9 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let mut memory = Memory::new(memory_map);
 
     let _modules = modules::load(handle, &system_table);
+    log::info!("loaded modules");
     kernel::load(handle, &system_table, &mut memory);
+    log::info!("loaded kernel");
 
     set_up_mappings(&mut memory);
 
@@ -164,13 +168,13 @@ struct Context {
 fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(mut system_table_pointer) = unsafe { SYSTEM_TABLE } {
         let system_table = unsafe { system_table_pointer.as_mut() };
-        let _ = writeln!(system_table.stdout(), "{}", info);
+        let _ = writeln!(system_table.stdout(), "{info}");
     }
 
     if let Some(logger) = logger::LOGGER.get() {
         unsafe { logger.force_unlock() };
     }
-    log::error!("{}", info);
+    log::error!("{info}");
 
     loop {
         unsafe { asm!("cli", "hlt") };

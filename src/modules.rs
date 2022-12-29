@@ -1,23 +1,17 @@
-use core::{mem::MaybeUninit, ptr, slice};
-
-use crate::info::Module;
+use crate::{
+    info::Module,
+    util::{allocate_slice, calculate_pages, get_file_system_root},
+};
+use core::mem::MaybeUninit;
 use uefi::{
     prelude::cstr16,
     proto::media::file::{File, FileAttribute, FileMode},
-    table::{
-        boot::{AllocateType, MemoryType},
-        Boot, SystemTable,
-    },
+    table::{boot::MemoryType, Boot, SystemTable},
     Handle,
 };
 
 pub fn load(handle: Handle, system_table: &SystemTable<Boot>) -> &'static mut [Module] {
-    let mut root = system_table
-        .boot_services()
-        .get_image_file_system(handle)
-        .unwrap()
-        .open_volume()
-        .unwrap();
+    let mut root = get_file_system_root(handle, system_table).unwrap();
 
     let mut dir = root
         .open(cstr16!("modules"), FileMode::Read, FileAttribute::empty())
@@ -86,24 +80,4 @@ pub fn load(handle: Handle, system_table: &SystemTable<Boot>) -> &'static mut [M
 
     assert_eq!(idx, modules.len());
     unsafe { MaybeUninit::slice_assume_init_mut(modules) }
-}
-
-fn allocate_slice<T>(
-    len: usize,
-    ty: MemoryType,
-    st: &SystemTable<Boot>,
-) -> &'static mut [MaybeUninit<T>] {
-    let bytes_len = core::mem::size_of::<T>() * len;
-    let num_pages = calculate_pages(bytes_len);
-    let pointer = st
-        .boot_services()
-        .allocate_pages(AllocateType::AnyPages, ty, num_pages)
-        .unwrap() as *mut _;
-    unsafe { ptr::write_bytes(pointer, 0, len) };
-    let slice = unsafe { slice::from_raw_parts_mut(pointer, len) };
-    slice
-}
-
-fn calculate_pages(bytes: usize) -> usize {
-    ((bytes - 1) / 4096) + 1
 }

@@ -10,7 +10,7 @@ derive_more = "*"
 log = "*"
 paste = "*"
 spin = "*"
-uefi = { version = "*", features = ["exts"] }
+uefi = { version = "*", default-features = false }
 zerocopy = "*"
 
 [dependencies.goblin]

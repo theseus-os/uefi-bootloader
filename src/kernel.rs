@@ -1,4 +1,7 @@
-use crate::memory::{Memory, PteFlags};
+use crate::{
+    memory::{Memory, PteFlags},
+    util::get_file_system_root,
+};
 use goblin::elf64::{header::Header, program_header::ProgramHeader};
 use uefi::{
     prelude::cstr16,
@@ -14,12 +17,7 @@ pub fn load<'a, 'b, I>(
 ) where
     I: ExactSizeIterator<Item = &'b MemoryDescriptor> + Clone,
 {
-    let mut root = system_table
-        .boot_services()
-        .get_image_file_system(handle)
-        .unwrap()
-        .open_volume()
-        .unwrap();
+    let mut root = get_file_system_root(handle, system_table).unwrap();
 
     const KERNEL_NAME: &CStr16 = cstr16!("kernel.elf");
 
