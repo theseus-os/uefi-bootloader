@@ -9,7 +9,7 @@ mod memory;
 
 use crate::{
     info::{FrameBuffer, FrameBufferInfo},
-    memory::FrameAllocator,
+    memory::Memory,
 };
 use goblin::elf64::{header::Header, program_header::ProgramHeader};
 use uefi::{
@@ -23,7 +23,7 @@ use uefi::{
 };
 
 #[entry]
-fn efi_main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
+fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     system_table
         .stdout()
         .clear()
@@ -49,7 +49,7 @@ fn efi_main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         .memory_map(memory_map_buffer)
         .unwrap();
 
-    let _frame_allocator = FrameAllocator::new(memory_map);
+    let memory = Memory::new(memory_map);
 
     todo!();
 }

@@ -469,7 +469,7 @@ where
             .unwrap()
     }
 
-    fn allocate_frame(&mut self) -> Option<Frame> {
+    pub fn allocate_frame(&mut self) -> Option<Frame> {
         if let Some(current_descriptor) = self.current_descriptor {
             match self.allocate_frame_from_descriptor(current_descriptor) {
                 Some(frame) => return Some(frame),
@@ -491,5 +491,28 @@ where
         }
 
         None
+    }
+}
+
+pub struct Memory<'a, I> {
+    page_allocator: imp::PageAllocator,
+    frame_allocator: FrameAllocator<'a, I>,
+    mapper: imp::Mapper,
+}
+
+impl<'a, I> Memory<'a, I>
+where
+    I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
+{
+    pub fn new(memory_map: I) -> Self {
+        let page_allocator = imp::PageAllocator::new();
+        let mut frame_allocator = FrameAllocator::new(memory_map);
+        let mapper = imp::Mapper::new(&mut frame_allocator);
+
+        Self {
+            page_allocator,
+            frame_allocator,
+            mapper,
+        }
     }
 }

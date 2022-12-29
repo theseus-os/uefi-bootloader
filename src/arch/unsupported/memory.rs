@@ -1,3 +1,5 @@
+use crate::memory::{Frame, Page};
+
 pub fn is_canonical_virtual_address(_virtual_address: usize) -> bool {
     unimplemented!();
 }
@@ -21,7 +23,7 @@ impl Mapper {
         Self
     }
 
-    // unsafe fn map_to(&mut self, _page: Page, _frame: Frame) {
-    //     unimplemented!()
-    // }
+    unsafe fn map_to(&mut self, _page: Page, _frame: Frame) {
+        unimplemented!()
+    }
 }
