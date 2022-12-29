@@ -39,7 +39,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         .clear()
         .expect("failed to clear stdout");
 
-    let frame_buffer = get_frame_buffer(handle, &system_table);
+    let frame_buffer = get_frame_buffer(&system_table);
     if let Some(frame_buffer) = frame_buffer {
         init_logger(&frame_buffer);
         log::info!("Using framebuffer at {:#x}", frame_buffer.start);
@@ -73,7 +73,11 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     panic!();
 }
 
-fn get_frame_buffer(handle: Handle, system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
+fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
+    let handle = system_table
+        .boot_services()
+        .get_handle_for_protocol::<GraphicsOutput>()
+        .ok()?;
     let mut gop = system_table
         .boot_services()
         .open_protocol_exclusive::<GraphicsOutput>(handle)

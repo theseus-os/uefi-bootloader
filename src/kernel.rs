@@ -122,7 +122,7 @@ where
         self.file.read(slice).unwrap();
 
         let bss_start = (segment.p_offset + segment.p_filesz) as *mut u8;
-        let bss_size = (segment.p_filesz - segment.p_memsz) as usize;
+        let bss_size = (segment.p_memsz - segment.p_filesz) as usize;
 
         unsafe { core::ptr::write_bytes(bss_start, 0, bss_size) }
     }
