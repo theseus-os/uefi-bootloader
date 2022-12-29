@@ -417,6 +417,11 @@ impl<'a> Memory<'a> {
         }
     }
 
+    // TODO: This should take a shared reference to self.
+    pub fn page_table(&mut self) -> Frame {
+        Frame::containing_address(self.mapper.address())
+    }
+
     pub fn get_free_address(&mut self, len: usize) -> VirtualAddress {
         self.page_allocator.get_free_address(len)
     }

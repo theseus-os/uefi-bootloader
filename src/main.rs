@@ -60,6 +60,8 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let mappings = set_up_mappings(&mut memory, &frame_buffer);
     log::info!("created memory mappings");
 
+    let page_table = memory.page_table();
+
     let memory_map_len = system_table.boot_services().memory_map_size().map_size
         + 8 * core::mem::size_of::<MemoryDescriptor>();
 
@@ -118,8 +120,8 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     log::info!("exited boot services");
 
     let context = Context {
-        page_table: todo!(),
-        stack_top: todo!(),
+        page_table,
+        stack_top: mappings.stack_top,
         entry_point: todo!(),
         boot_info,
     };
@@ -238,13 +240,13 @@ fn set_up_mappings<'a, 'b>(
     // TODO: recursive index
 
     Mappings {
-        stack_end: (stack_end + 1).start_address(),
+        stack_top: (stack_end + 1).start_address(),
         frame_buffer,
     }
 }
 
 struct Mappings {
-    stack_end: VirtualAddress,
+    stack_top: VirtualAddress,
     frame_buffer: Option<VirtualAddress>,
 }
 
