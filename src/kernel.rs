@@ -10,13 +10,7 @@ use uefi::{
     CStr16, Handle,
 };
 
-pub fn load<'a, 'b, I>(
-    handle: Handle,
-    system_table: &SystemTable<Boot>,
-    memory: &'a mut Memory<'b, I>,
-) where
-    I: ExactSizeIterator<Item = &'b MemoryDescriptor> + Clone,
-{
+pub fn load<'a, 'b>(handle: Handle, system_table: &SystemTable<Boot>, memory: &'a mut Memory<'b>) {
     let mut root = get_file_system_root(handle, system_table).unwrap();
 
     const KERNEL_NAME: &CStr16 = cstr16!("kernel.elf");
@@ -35,21 +29,18 @@ pub fn load<'a, 'b, I>(
     loader.load();
 }
 
-struct Loader<'a, 'b, I> {
+struct Loader<'a, 'b> {
     file: RegularFile,
-    memory: &'a mut Memory<'b, I>,
+    memory: &'a mut Memory<'b>,
 }
 
-impl<'a, 'b, I> Loader<'a, 'b, I>
-where
-    I: ExactSizeIterator<Item = &'b MemoryDescriptor> + Clone,
-{
+impl<'a, 'b> Loader<'a, 'b> {
     /// Creates a new loader.
     ///
     /// # Safety
     ///
     /// The file position must be set to the start of the file.
-    unsafe fn new(file: RegularFile, memory: &'a mut Memory<'b, I>) -> Self {
+    unsafe fn new(file: RegularFile, memory: &'a mut Memory<'b>) -> Self {
         Self { file, memory }
     }
 
@@ -87,8 +78,12 @@ where
             );
             let program_header: ProgramHeader = unsafe { *(buffer.as_ptr() as *mut _) };
 
+            if program_header.p_memsz == 0 {
+                continue;
+            }
+
             match program_header.p_type {
-                0 => {},
+                0 => {}
                 // Loadable
                 1 => self.handle_load_segment(program_header),
                 // TLS
@@ -102,6 +97,7 @@ where
     }
 
     fn handle_load_segment(&mut self, segment: ProgramHeader) {
+        log::info!("handling load segment: {segment:?}");
         let mut flags = PteFlags::PRESENT;
 
         // If the first bit isn't set

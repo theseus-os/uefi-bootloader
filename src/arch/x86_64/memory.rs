@@ -1,7 +1,6 @@
 use crate::memory::{Frame, FrameAllocator, Page, PhysicalAddress, VirtualAddress};
 use bit_field::BitField;
 use goblin::elf64::program_header::ProgramHeader;
-use uefi::table::boot::MemoryDescriptor;
 use x86_64::structures::paging::{self, OffsetPageTable, PageTable, PageTableIndex};
 
 pub use x86_64::structures::paging::PageTableFlags as PteFlags;
@@ -118,13 +117,9 @@ impl PageAllocator {
     }
 }
 
-unsafe impl<'a, I> paging::FrameAllocator<paging::page::Size4KiB> for FrameAllocator<'a, I>
-where
-    I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
-{
+unsafe impl<'a> paging::FrameAllocator<paging::page::Size4KiB> for FrameAllocator<'a> {
     fn allocate_frame(&mut self) -> Option<paging::PhysFrame<paging::page::Size4KiB>> {
-        let frame = FrameAllocator::allocate_frame(self)?;
-        Some(frame.into())
+        FrameAllocator::allocate_frame(self).map(|frame| frame.into())
     }
 }
 
@@ -133,10 +128,7 @@ pub struct Mapper {
 }
 
 impl Mapper {
-    pub fn new<'a, I>(frame_allocator: &mut FrameAllocator<'a, I>) -> Self
-    where
-        I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
-    {
+    pub fn new(frame_allocator: &mut FrameAllocator) -> Self {
         let frame = frame_allocator.allocate_frame().unwrap();
         // Physical memory is identity-mapped.
         let pointer = frame.start_address().value() as *mut _;
@@ -152,15 +144,13 @@ impl Mapper {
         PhysicalAddress::new_canonical(self.inner.level_4_table() as *const _ as usize)
     }
 
-    pub fn map<'a, I>(
+    pub fn map<'a>(
         &mut self,
         page: Page,
         frame: Frame,
         flags: PteFlags,
-        frame_allocator: &mut FrameAllocator<'a, I>,
-    ) where
-        I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
-    {
+        frame_allocator: &mut FrameAllocator<'a>,
+    ) {
         // TODO: Unsafe
         unsafe {
             paging::Mapper::<paging::Size4KiB>::map_to(

@@ -15,8 +15,8 @@ use crate::{
     info::{FrameBuffer, FrameBufferInfo},
     memory::{Frame, Memory, Page, PhysicalAddress, PteFlags, VirtualAddress},
 };
-use core::{arch::asm, fmt::Write, ptr::NonNull};
-use info::BootInformation;
+use core::{alloc::Layout, arch::asm, fmt::Write, mem::MaybeUninit, ptr::NonNull, slice};
+use info::{BootInformation, ElfSection, MemoryRegion, Module};
 use uefi::{
     prelude::entry,
     proto::console::gop::{GraphicsOutput, PixelFormat},
@@ -47,32 +47,24 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     unsafe { SYSTEM_TABLE = None };
 
-    let memory_map_buffer = {
-        let memory_map_size = system_table.boot_services().memory_map_size().map_size
-            + 8 * core::mem::size_of::<MemoryDescriptor>();
-        let pointer = system_table
-            .boot_services()
-            .allocate_pool(MemoryType::LOADER_DATA, memory_map_size)
-            .unwrap();
-        unsafe { core::slice::from_raw_parts_mut(pointer, memory_map_size) }
-    };
-    let (_, memory_map) = system_table
-        .boot_services()
-        .memory_map(memory_map_buffer)
-        .unwrap();
+    let mut memory = Memory::new(system_table.boot_services());
 
-    let mut memory = Memory::new(memory_map);
-
-    let _modules = modules::load(handle, &system_table);
+    let modules = modules::load(handle, &system_table);
     log::info!("loaded modules");
     kernel::load(handle, &system_table, &mut memory);
     log::info!("loaded kernel");
 
-    set_up_mappings(&mut memory, &frame_buffer);
-    log::info!("setup memory mappings");
+    let mappings = set_up_mappings(&mut memory, &frame_buffer);
+    log::info!("created memory mappings");
 
-    create_boot_info();
+    let memory_map_size = system_table.boot_services().memory_map_size().map_size
+        + 8 * core::mem::size_of::<MemoryDescriptor>();
+
+    let boot_info = create_boot_info(&mut memory, mappings, modules, memory_map_size);
     log::info!("created boot info");
+
+    let memory_map = system_table.exit_boot_services(handle, todo!());
+    log::info!("exited boot services");
 
     let context = Context {
         page_table: todo!(),
@@ -81,6 +73,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         boot_info: todo!(),
     };
 
+    log::info!("about to switch to kernel: {context:x?}");
     unsafe { context_switch(context) };
 }
 
@@ -127,11 +120,13 @@ fn init_logger(frame_buffer: &FrameBuffer) {
     log::set_max_level(log::LevelFilter::Trace);
 }
 
-fn set_up_mappings<'a, 'b, I>(memory: &'a mut Memory<'b, I>, frame_buffer: &Option<FrameBuffer>)
-where
-    I: ExactSizeIterator<Item = &'b MemoryDescriptor> + Clone,
-{
+fn set_up_mappings<'a, 'b>(
+    memory: &'a mut Memory<'b>,
+    frame_buffer: &Option<FrameBuffer>,
+) -> Mappings {
     // TODO: Reserve kernel frames
+
+    // TODO: enable nxe and write protect bits on x86_64
 
     // TODO
     const STACK_SIZE: usize = 18 * 4096;
@@ -158,7 +153,7 @@ where
         PteFlags::PRESENT,
     );
 
-    let frame_buffer_address = frame_buffer.map(|frame_buffer| {
+    let frame_buffer = frame_buffer.map(|frame_buffer| {
         let start_virtual = memory.get_free_address(frame_buffer.info.len);
 
         let start_page = Page::containing_address(start_virtual);
@@ -175,10 +170,30 @@ where
             // in the memory map.
             memory.map(page, frame, PteFlags::PRESENT | PteFlags::WRITABLE);
         }
+
+        start_virtual
     });
+
+    // TODO: GDT
+    // TODO: recursive index
+
+    Mappings {
+        stack_end: (stack_end + 1).start_address(),
+        frame_buffer,
+    }
 }
 
-fn create_boot_info() -> &'static mut BootInformation {
+struct Mappings {
+    stack_end: VirtualAddress,
+    frame_buffer: Option<VirtualAddress>,
+}
+
+fn create_boot_info<'a, 'b>(
+    memory: &'a mut Memory<'b>,
+    mappings: Mappings,
+    modules: &'static mut [Module],
+    num_memory_regions: usize,
+) -> &'static mut BootInformation {
     todo!();
 }
 
@@ -195,6 +210,7 @@ unsafe fn context_switch(context: Context) -> ! {
     }
 }
 
+#[derive(Debug)]
 struct Context {
     page_table: Frame,
     stack_top: VirtualAddress,

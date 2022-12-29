@@ -13,13 +13,18 @@ use derive_more::{
 };
 use goblin::elf64::program_header::ProgramHeader;
 use paste::paste;
-use uefi::table::boot::{MemoryDescriptor, MemoryType};
+use uefi::{
+    prelude::BootServices,
+    table::boot::{AllocateType, MemoryType},
+};
 use zerocopy::FromBytes;
 
 pub use imp::PteFlags;
 
 const PAGE_SIZE: usize = 4096;
 const MAX_PAGE_NUMBER: usize = usize::MAX / PAGE_SIZE;
+
+const KERNEL_MEMORY: MemoryType = MemoryType::custom(0xffffffff);
 
 /// A macro for defining `VirtualAddress` and `PhysicalAddress` structs
 /// and implementing their common traits, which are generally identical.
@@ -393,123 +398,16 @@ macro_rules! implement_page_frame_range {
 implement_page_frame_range!(PageRange, "virtual", virt, Page, VirtualAddress);
 implement_page_frame_range!(FrameRange, "physical", phys, Frame, PhysicalAddress);
 
-pub struct FrameAllocator<'a, I> {
-    original: I,
-    memory_map: I,
-    current_descriptor: Option<&'a MemoryDescriptor>,
-    next_frame: Frame,
-}
-
-impl<'a, I> FrameAllocator<'a, I>
-where
-    I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
-{
-    pub fn new(memory_map: I) -> Self {
-        // Allocating frames below 0x10000 causes problems during AP startup.
-        let start_frame = Frame::containing_address(PhysicalAddress::new_canonical(0x10000));
-        Self::new_starting_at(start_frame, memory_map)
-    }
-
-    /// Creates a new frame allocator based on the given legacy memory regions.
-    /// Skips any frames before the given `frame`.
-    pub fn new_starting_at(frame: Frame, memory_map: I) -> Self {
-        Self {
-            original: memory_map.clone(),
-            memory_map,
-            current_descriptor: None,
-            next_frame: frame,
-        }
-    }
-
-    fn allocate_frame_from_descriptor(
-        &mut self,
-        descriptor: &'a MemoryDescriptor,
-    ) -> Option<Frame> {
-        let start_addr = PhysicalAddress::new_canonical(descriptor.phys_start as usize);
-        let start_frame = Frame::containing_address(start_addr);
-        let end_addr = start_addr + (descriptor.page_count as usize * PAGE_SIZE);
-        let end_frame = Frame::containing_address(end_addr - 1);
-
-        // increase self.next_frame to start_frame if smaller
-        if self.next_frame < start_frame {
-            self.next_frame = start_frame;
-        }
-
-        if self.next_frame < end_frame {
-            let ret = self.next_frame;
-            self.next_frame += 1;
-            Some(ret)
-        } else {
-            None
-        }
-    }
-
-    /// Returns the number of memory regions in the underlying memory map.
-    ///
-    /// The function always returns the same value, i.e. the length doesn't
-    /// change after calls to `allocate_frame`.
-    pub fn len(&self) -> usize {
-        self.original.len()
-    }
-
-    /// Returns whether this memory map is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns the largest detected physical memory address.
-    ///
-    /// Useful for creating a mapping for all physical memory.
-    pub fn max_phys_addr(&self) -> PhysicalAddress {
-        self.original
-            .clone()
-            .map(|descriptor| {
-                PhysicalAddress::new_canonical(
-                    descriptor.phys_start as usize + (descriptor.page_count as usize * PAGE_SIZE),
-                )
-            })
-            .max()
-            .unwrap()
-    }
-
-    pub fn allocate_frame(&mut self) -> Option<Frame> {
-        if let Some(current_descriptor) = self.current_descriptor {
-            match self.allocate_frame_from_descriptor(current_descriptor) {
-                Some(frame) => return Some(frame),
-                None => {
-                    self.current_descriptor = None;
-                }
-            }
-        }
-
-        // find next suitable descriptor
-        while let Some(descriptor) = self.memory_map.next() {
-            if descriptor.ty != MemoryType::CONVENTIONAL {
-                continue;
-            }
-            if let Some(frame) = self.allocate_frame_from_descriptor(descriptor) {
-                self.current_descriptor = Some(descriptor);
-                return Some(frame);
-            }
-        }
-
-        None
-    }
-}
-
-pub struct Memory<'a, I> {
+pub struct Memory<'a> {
     page_allocator: imp::PageAllocator,
-    frame_allocator: FrameAllocator<'a, I>,
+    frame_allocator: FrameAllocator<'a>,
     mapper: imp::Mapper,
 }
 
-impl<'a, I> Memory<'a, I>
-where
-    I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
-{
-    pub fn new(memory_map: I) -> Self {
+impl<'a> Memory<'a> {
+    pub fn new(boot_services: &'a BootServices) -> Self {
         let page_allocator = imp::PageAllocator::new();
-        let mut frame_allocator = FrameAllocator::new(memory_map);
+        let mut frame_allocator = FrameAllocator { boot_services };
         let mapper = imp::Mapper::new(&mut frame_allocator);
 
         Self {
@@ -533,8 +431,6 @@ where
     }
 
     pub fn map_segment(&mut self, segment: ProgramHeader, flags: PteFlags) {
-        self.page_allocator.mark_segment_as_used(segment);
-
         let virtual_start = VirtualAddress::new_canonical(segment.p_vaddr as usize);
         let virtual_end_inclusive = virtual_start + segment.p_memsz as usize - 1;
 
@@ -549,12 +445,40 @@ where
         let frames = FrameRange::new(
             Frame::containing_address(physical_start),
             Frame::containing_address(physical_end_inclusive),
-        )
-        .into_iter();
+        );
+
+        self.page_allocator.mark_segment_as_used(segment);
+        self.frame_allocator.allocate_frames(frames.clone());
 
         for (page, frame) in pages.zip(frames) {
             self.mapper
                 .map(page, frame, flags, &mut self.frame_allocator);
         }
+    }
+}
+
+pub struct FrameAllocator<'a> {
+    boot_services: &'a BootServices,
+}
+
+impl<'a> FrameAllocator<'a> {
+    pub fn allocate_frame(&mut self) -> Option<Frame> {
+        // Since memory is identity-mapped, pages are frames.
+        self.boot_services
+            .allocate_pages(AllocateType::AnyPages, KERNEL_MEMORY, 1)
+            .ok()
+            .map(|address| {
+                Frame::containing_address(PhysicalAddress::new_canonical(address as usize))
+            })
+    }
+
+    pub fn allocate_frames(&mut self, range: FrameRange) {
+        self.boot_services
+            .allocate_pages(
+                AllocateType::Address(range.start_address().value() as u64),
+                KERNEL_MEMORY,
+                range.size_in_frames(),
+            )
+            .unwrap();
     }
 }
