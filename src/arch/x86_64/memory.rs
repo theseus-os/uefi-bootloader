@@ -4,6 +4,8 @@ use goblin::elf64::program_header::ProgramHeader;
 use uefi::table::boot::MemoryDescriptor;
 use x86_64::structures::paging::{self, OffsetPageTable, PageTable, PageTableIndex};
 
+pub use x86_64::structures::paging::PageTableFlags as PteFlags;
+
 pub fn is_canonical_virtual_address(virt_addr: usize) -> bool {
     matches!(virt_addr.get_bits(47..64), 0 | 0b1_1111_1111_1111_1111)
 }
@@ -50,60 +52,6 @@ impl From<Frame> for paging::PhysFrame {
     fn from(frame: Frame) -> Self {
         Self::from_start_address(x86_64::PhysAddr::new(frame.start_address().value() as u64))
             .unwrap()
-    }
-}
-
-pub struct Mapper {
-    inner: OffsetPageTable<'static>,
-}
-
-impl Mapper {
-    pub fn new<'a, I>(frame_allocator: &mut FrameAllocator<'a, I>) -> Self
-    where
-        I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
-    {
-        let frame = frame_allocator.allocate_frame().unwrap();
-        // Physical memory is identity-mapped.
-        let pointer = frame.start_address().value() as *mut _;
-        unsafe { *pointer = PageTable::new() };
-        let level_4_table = unsafe { &mut *pointer };
-        Self {
-            inner: unsafe { OffsetPageTable::new(level_4_table, x86_64::VirtAddr::zero()) },
-        }
-    }
-
-    // TODO: This should take a shared reference to self.
-    pub fn address(&mut self) -> PhysicalAddress {
-        PhysicalAddress::new_canonical(self.inner.level_4_table() as *const _ as usize)
-    }
-
-    unsafe fn map_to<'a, I>(
-        &mut self,
-        page: Page,
-        frame: Frame,
-        frame_allocator: &mut FrameAllocator<'a, I>,
-    ) where
-        I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
-    {
-        paging::Mapper::<paging::Size4KiB>::map_to(
-            &mut self.inner,
-            page.into(),
-            frame.into(),
-            todo!(),
-            frame_allocator,
-        )
-        .unwrap()
-        .ignore();
-    }
-}
-
-unsafe impl<'a, I> paging::FrameAllocator<paging::page::Size4KiB> for FrameAllocator<'a, I>
-where
-    I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
-{
-    fn allocate_frame(&mut self) -> Option<paging::PhysFrame<paging::page::Size4KiB>> {
-        let frame = FrameAllocator::allocate_frame(self)?;
-        Some(frame.into())
     }
 }
 
@@ -167,5 +115,60 @@ impl PageAllocator {
         for p4_index in start_page.p4_index()..=end_page_inclusive.p4_index() {
             self.level_4_entries[p4_index] = true;
         }
+    }
+}
+
+unsafe impl<'a, I> paging::FrameAllocator<paging::page::Size4KiB> for FrameAllocator<'a, I>
+where
+    I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
+{
+    fn allocate_frame(&mut self) -> Option<paging::PhysFrame<paging::page::Size4KiB>> {
+        let frame = FrameAllocator::allocate_frame(self)?;
+        Some(frame.into())
+    }
+}
+
+pub struct Mapper {
+    inner: OffsetPageTable<'static>,
+}
+
+impl Mapper {
+    pub fn new<'a, I>(frame_allocator: &mut FrameAllocator<'a, I>) -> Self
+    where
+        I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
+    {
+        let frame = frame_allocator.allocate_frame().unwrap();
+        // Physical memory is identity-mapped.
+        let pointer = frame.start_address().value() as *mut _;
+        unsafe { *pointer = PageTable::new() };
+        let level_4_table = unsafe { &mut *pointer };
+        Self {
+            inner: unsafe { OffsetPageTable::new(level_4_table, x86_64::VirtAddr::zero()) },
+        }
+    }
+
+    // TODO: This should take a shared reference to self.
+    pub fn address(&mut self) -> PhysicalAddress {
+        PhysicalAddress::new_canonical(self.inner.level_4_table() as *const _ as usize)
+    }
+
+    unsafe fn map_to<'a, I>(
+        &mut self,
+        page: Page,
+        frame: Frame,
+        flags: PteFlags,
+        frame_allocator: &mut FrameAllocator<'a, I>,
+    ) where
+        I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
+    {
+        paging::Mapper::<paging::Size4KiB>::map_to(
+            &mut self.inner,
+            page.into(),
+            frame.into(),
+            flags,
+            frame_allocator,
+        )
+        .unwrap()
+        .ignore();
     }
 }
