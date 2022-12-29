@@ -425,6 +425,10 @@ impl<'a> Memory<'a> {
         self.frame_allocator.allocate_frame()
     }
 
+    pub fn allocate_frames(&mut self, count: usize) -> Option<FrameRange> {
+        self.frame_allocator.allocate_frames(count)
+    }
+
     pub fn map(&mut self, page: Page, frame: Frame, flags: PteFlags) {
         self.mapper
             .map(page, frame, flags, &mut self.frame_allocator);
@@ -448,7 +452,8 @@ impl<'a> Memory<'a> {
         );
 
         self.page_allocator.mark_segment_as_used(segment);
-        self.frame_allocator.allocate_frames(frames.clone());
+        self.frame_allocator
+            .allocate_specific_frames(frames.clone());
 
         for (page, frame) in pages.zip(frames) {
             self.mapper
@@ -464,15 +469,22 @@ pub struct FrameAllocator<'a> {
 impl<'a> FrameAllocator<'a> {
     pub fn allocate_frame(&mut self) -> Option<Frame> {
         // Since memory is identity-mapped, pages are frames.
+        self.allocate_frames(1).map(|frames| *frames.start())
+    }
+
+    pub fn allocate_frames(&mut self, count: usize) -> Option<FrameRange> {
         self.boot_services
             .allocate_pages(AllocateType::AnyPages, KERNEL_MEMORY, 1)
             .ok()
             .map(|address| {
-                Frame::containing_address(PhysicalAddress::new_canonical(address as usize))
+                FrameRange::from_phys_addr(
+                    PhysicalAddress::new_canonical(address as usize),
+                    count * 4096,
+                )
             })
     }
 
-    pub fn allocate_frames(&mut self, range: FrameRange) {
+    pub fn allocate_specific_frames(&mut self, range: FrameRange) {
         self.boot_services
             .allocate_pages(
                 AllocateType::Address(range.start_address().value() as u64),

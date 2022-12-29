@@ -1,16 +1,27 @@
+use core::mem::MaybeUninit;
+
 use crate::{
+    info::ElfSection,
     memory::{Memory, PteFlags},
-    util::get_file_system_root,
+    util::{allocate_slice, get_file_system_root},
 };
-use goblin::elf64::{header::Header, program_header::ProgramHeader};
+use goblin::elf64::{
+    header::Header,
+    program_header::{ProgramHeader, SIZEOF_PHDR},
+    section_header::SIZEOF_SHDR,
+};
 use uefi::{
     prelude::cstr16,
     proto::media::file::{File, FileAttribute, FileMode, FileType, RegularFile},
-    table::{boot::MemoryDescriptor, Boot, SystemTable},
+    table::{boot::MemoryType, Boot, SystemTable},
     CStr16, Handle,
 };
 
-pub fn load<'a, 'b>(handle: Handle, system_table: &SystemTable<Boot>, memory: &'a mut Memory<'b>) {
+pub fn load<'a, 'b>(
+    handle: Handle,
+    system_table: &SystemTable<Boot>,
+    memory: &'a mut Memory<'b>,
+) -> &'static mut [ElfSection] {
     let mut root = get_file_system_root(handle, system_table).unwrap();
 
     const KERNEL_NAME: &CStr16 = cstr16!("kernel.elf");
@@ -25,26 +36,35 @@ pub fn load<'a, 'b>(handle: Handle, system_table: &SystemTable<Boot>, memory: &'
         FileType::Dir(_) => panic!(),
     };
 
-    let loader = unsafe { Loader::new(kernel_file, memory) };
-    loader.load();
+    let loader = unsafe { Loader::new(kernel_file, memory, system_table) };
+    loader.load()
 }
 
-struct Loader<'a, 'b> {
+struct Loader<'a, 'b, 'c> {
     file: RegularFile,
     memory: &'a mut Memory<'b>,
+    system_table: &'c SystemTable<Boot>,
 }
 
-impl<'a, 'b> Loader<'a, 'b> {
+impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
     /// Creates a new loader.
     ///
     /// # Safety
     ///
     /// The file position must be set to the start of the file.
-    unsafe fn new(file: RegularFile, memory: &'a mut Memory<'b>) -> Self {
-        Self { file, memory }
+    unsafe fn new(
+        file: RegularFile,
+        memory: &'a mut Memory<'b>,
+        system_table: &'c SystemTable<Boot>,
+    ) -> Self {
+        Self {
+            file,
+            memory,
+            system_table,
+        }
     }
 
-    fn load(mut self) {
+    fn load(mut self) -> &'static mut [ElfSection] {
         let mut buffer = [0; core::mem::size_of::<Header>()];
         self.file.read(&mut buffer).unwrap();
 
@@ -53,31 +73,19 @@ impl<'a, 'b> Loader<'a, 'b> {
         let program_header_offset = kernel_header.e_phoff;
         let program_header_count = kernel_header.e_phnum;
 
-        const PROGRAM_HEADER_SIZE: usize = 0x38;
-        assert_eq!(kernel_header.e_phentsize as usize, PROGRAM_HEADER_SIZE);
-        assert_eq!(
-            kernel_header.e_ehsize as usize,
-            core::mem::size_of::<Header>()
-        );
-
-        let mut buffer = [0; PROGRAM_HEADER_SIZE];
+        let mut buffer = [0; SIZEOF_PHDR];
 
         for i in 0..program_header_count as u64 {
             // Loading segments modifies the file position.
             self.file
-                .set_position(
-                    program_header_offset + (i * core::mem::size_of::<ProgramHeader>() as u64),
-                )
+                .set_position(program_header_offset + (i * SIZEOF_PHDR as u64))
                 .unwrap();
             self.file.read(&mut buffer).unwrap();
 
             // TODO
-            assert_eq!(
-                core::mem::size_of_val(&buffer),
-                core::mem::size_of::<ProgramHeader>(),
-            );
             let program_header: ProgramHeader = unsafe { *(buffer.as_ptr() as *mut _) };
 
+            // .got section
             if program_header.p_memsz == 0 {
                 continue;
             }
@@ -94,6 +102,29 @@ impl<'a, 'b> Loader<'a, 'b> {
                 _ => {}
             }
         }
+
+        self.elf_sections(kernel_header)
+    }
+
+    fn elf_sections(&mut self, header: &Header) -> &'static mut [ElfSection] {
+        let program_header_count = header.e_shnum;
+
+        let sections = allocate_slice(
+            program_header_count as usize,
+            MemoryType::LOADER_DATA,
+            self.system_table,
+        );
+        let mut buffer = [0; SIZEOF_SHDR];
+
+        self.file.set_position(header.e_shoff as u64).unwrap();
+
+        for i in 0..program_header_count as usize {
+            self.file.read(&mut buffer).unwrap();
+            let section_header = unsafe { *(buffer.as_ptr() as *mut _) };
+            sections[i].write(section_header);
+        }
+
+        unsafe { MaybeUninit::slice_assume_init_mut(sections) }
     }
 
     fn handle_load_segment(&mut self, segment: ProgramHeader) {

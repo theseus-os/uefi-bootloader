@@ -3,7 +3,7 @@ use core::{ops, slice, str};
 #[derive(Debug)]
 #[repr(C)]
 pub struct BootInformation {
-    pub len: usize,
+    pub size: usize,
     pub frame_buffer: Option<FrameBuffer>,
     pub rsdp_address: Option<usize>,
     pub memory_regions: MemoryRegions,
@@ -21,7 +21,7 @@ pub struct FrameBuffer {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct FrameBufferInfo {
-    pub len: usize,
+    pub size: usize,
     pub width: usize,
     pub height: usize,
     pub pixel_format: PixelFormat,
