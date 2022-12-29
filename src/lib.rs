@@ -11,9 +11,10 @@ mod modules;
 
 use crate::{
     info::{FrameBuffer, FrameBufferInfo},
-    memory::{Memory, Page, PteFlags},
+    memory::{Frame, Memory, Page, PhysicalAddress, PteFlags, VirtualAddress},
 };
-use core::{fmt::Write, ptr::NonNull};
+use core::{arch::asm, fmt::Write, ptr::NonNull};
+use info::BootInformation;
 use uefi::{
     prelude::entry,
     proto::console::gop::{GraphicsOutput, PixelFormat},
@@ -111,6 +112,8 @@ fn set_up_mappings<'a, 'b, I>(memory: &'a mut Memory<'b, I>)
 where
     I: ExactSizeIterator<Item = &'b MemoryDescriptor> + Clone,
 {
+    // TODO: Reserve kernel frames
+
     // TODO
     const STACK_SIZE: usize = 18 * 4096;
 
@@ -125,8 +128,36 @@ where
     // The +1 means the guard page isn't mapped to a frame.
     for page in (stack_start + 1)..=stack_end {
         let frame = memory.allocate_frame().unwrap();
+        // TODO: No execute?
         memory.map(page, frame, PteFlags::PRESENT | PteFlags::WRITABLE);
     }
+
+    // TODO: Explain
+    memory.map(
+        Page::containing_address(VirtualAddress::new_canonical(context_switch as usize)),
+        Frame::containing_address(PhysicalAddress::new_canonical(context_switch as usize)),
+        PteFlags::PRESENT,
+    );
+}
+
+unsafe fn context_switch(context: Context) -> ! {
+    unsafe {
+        asm!(
+            "mov cr3, {}; mov rsp, {}; jmp {}",
+            in(reg) context.page_table.start_address().value(),
+            in(reg) context.stack_top.value(),
+            in(reg) context.entry_point.value(),
+            in("rdi") context.boot_info as *const _ as usize,
+            options(noreturn),
+        );
+    }
+}
+
+struct Context {
+    page_table: Frame,
+    stack_top: VirtualAddress,
+    entry_point: VirtualAddress,
+    boot_info: &'static mut BootInformation,
 }
 
 #[panic_handler]
@@ -142,6 +173,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     log::error!("{}", info);
 
     loop {
-        unsafe { core::arch::asm!("cli", "hlt") };
+        unsafe { asm!("cli", "hlt") };
     }
 }
