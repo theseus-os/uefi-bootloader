@@ -46,6 +46,8 @@ where
 {
     /// Creates a new loader.
     ///
+    /// # Safety
+    ///
     /// The file position must be set to the start of the file.
     unsafe fn new(file: RegularFile, memory: &'a mut Memory<'b, I>) -> Self {
         Self { file, memory }
@@ -86,12 +88,15 @@ where
             let program_header: ProgramHeader = unsafe { *(buffer.as_ptr() as *mut _) };
 
             match program_header.p_type {
+                0 => {},
                 // Loadable
                 1 => self.handle_load_segment(program_header),
                 // TLS
                 // TODO?
                 7 => {}
-                _ => todo!(),
+                // Probably GNU_STACK
+                // TODO: Remove from nano_core binary?
+                _ => {}
             }
         }
     }
