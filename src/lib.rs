@@ -11,7 +11,7 @@ mod modules;
 
 use crate::{
     info::{FrameBuffer, FrameBufferInfo},
-    memory::Memory,
+    memory::{Memory, Page, PteFlags},
 };
 use core::{fmt::Write, ptr::NonNull};
 use uefi::{
@@ -63,6 +63,8 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let _modules = modules::load(handle, &system_table);
     kernel::load(handle, &system_table, &mut memory);
 
+    set_up_mappings(&mut memory);
+
     panic!();
 }
 
@@ -103,6 +105,28 @@ fn init_logger(frame_buffer: &FrameBuffer) {
         logger::LOGGER.call_once(move || logger::LockedLogger::new(slice, frame_buffer.info));
     log::set_logger(logger).expect("logger already set");
     log::set_max_level(log::LevelFilter::Trace);
+}
+
+fn set_up_mappings<'a, 'b, I>(memory: &'a mut Memory<'b, I>)
+where
+    I: ExactSizeIterator<Item = &'b MemoryDescriptor> + Clone,
+{
+    // TODO
+    const STACK_SIZE: usize = 18 * 4096;
+
+    let stack_start_address = memory.get_free_address(STACK_SIZE);
+
+    let stack_start = Page::containing_address(stack_start_address);
+    let stack_end = {
+        let end_address = stack_start_address + STACK_SIZE;
+        Page::containing_address(end_address - 1)
+    };
+
+    // The +1 means the guard page isn't mapped to a frame.
+    for page in (stack_start + 1)..=stack_end {
+        let frame = memory.allocate_frame().unwrap();
+        memory.map(page, frame, PteFlags::PRESENT | PteFlags::WRITABLE);
+    }
 }
 
 #[panic_handler]

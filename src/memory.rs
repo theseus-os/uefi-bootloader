@@ -519,6 +519,19 @@ where
         }
     }
 
+    pub fn get_free_address(&mut self, len: usize) -> VirtualAddress {
+        self.page_allocator.get_free_address(len)
+    }
+
+    pub fn allocate_frame(&mut self) -> Option<Frame> {
+        self.frame_allocator.allocate_frame()
+    }
+
+    pub fn map(&mut self, page: Page, frame: Frame, flags: PteFlags) {
+        self.mapper
+            .map(page, frame, flags, &mut self.frame_allocator);
+    }
+
     pub fn map_segment(&mut self, segment: ProgramHeader, flags: PteFlags) {
         self.page_allocator.mark_segment_as_used(segment);
 

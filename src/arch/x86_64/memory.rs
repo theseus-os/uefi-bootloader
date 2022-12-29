@@ -92,13 +92,13 @@ impl PageAllocator {
         PageTableIndex::new(idx.try_into().unwrap())
     }
 
-    pub fn get_free_address(&mut self, len: u64) -> VirtualAddress {
-        const LEVEL_4_SIZE: u64 = 4096 * 512 * 512 * 512;
+    pub fn get_free_address(&mut self, len: usize) -> VirtualAddress {
+        const LEVEL_4_SIZE: usize = 4096 * 512 * 512 * 512;
         let num_level_4_entries = (len + (LEVEL_4_SIZE - 1)) / LEVEL_4_SIZE;
 
         // TODO: Explain
         paging::Page::from_page_table_indices_1gib(
-            self.get_free_entries(num_level_4_entries),
+            self.get_free_entries(num_level_4_entries as u64),
             PageTableIndex::new(0),
         )
         .start_address()
