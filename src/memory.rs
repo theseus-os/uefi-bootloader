@@ -11,9 +11,12 @@ use derive_more::{
     Add, AddAssign, Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign,
     LowerHex, Octal, Sub, SubAssign, UpperHex,
 };
+use goblin::elf64::program_header::ProgramHeader;
 use paste::paste;
 use uefi::table::boot::{MemoryDescriptor, MemoryType};
 use zerocopy::FromBytes;
+
+pub use imp::PteFlags;
 
 const PAGE_SIZE: usize = 4096;
 const MAX_PAGE_NUMBER: usize = usize::MAX / PAGE_SIZE;
@@ -513,6 +516,32 @@ where
             page_allocator,
             frame_allocator,
             mapper,
+        }
+    }
+
+    pub fn map_segment(&mut self, segment: ProgramHeader, flags: PteFlags) {
+        self.page_allocator.mark_segment_as_used(segment);
+
+        let virtual_start = VirtualAddress::new_canonical(segment.p_vaddr as usize);
+        let virtual_end_inclusive = virtual_start + segment.p_memsz as usize - 1;
+
+        let physical_start = PhysicalAddress::new_canonical(segment.p_paddr as usize);
+        let physical_end_inclusive = physical_start + segment.p_memsz as usize - 1;
+
+        let pages = PageRange::new(
+            Page::containing_address(virtual_start),
+            Page::containing_address(virtual_end_inclusive),
+        )
+        .into_iter();
+        let frames = FrameRange::new(
+            Frame::containing_address(physical_start),
+            Frame::containing_address(physical_end_inclusive),
+        )
+        .into_iter();
+
+        for (page, frame) in pages.zip(frames) {
+            self.mapper
+                .map(page, frame, flags, &mut self.frame_allocator);
         }
     }
 }

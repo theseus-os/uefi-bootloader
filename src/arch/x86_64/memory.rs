@@ -152,7 +152,7 @@ impl Mapper {
         PhysicalAddress::new_canonical(self.inner.level_4_table() as *const _ as usize)
     }
 
-    unsafe fn map_to<'a, I>(
+    pub fn map<'a, I>(
         &mut self,
         page: Page,
         frame: Frame,
@@ -161,13 +161,16 @@ impl Mapper {
     ) where
         I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
     {
-        paging::Mapper::<paging::Size4KiB>::map_to(
-            &mut self.inner,
-            page.into(),
-            frame.into(),
-            flags,
-            frame_allocator,
-        )
+        // TODO: Unsafe
+        unsafe {
+            paging::Mapper::<paging::Size4KiB>::map_to(
+                &mut self.inner,
+                page.into(),
+                frame.into(),
+                flags,
+                frame_allocator,
+            )
+        }
         .unwrap()
         .ignore();
     }

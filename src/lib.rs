@@ -4,6 +4,7 @@
 
 mod arch;
 mod info;
+mod load;
 mod logger;
 mod memory;
 
@@ -11,19 +12,24 @@ use crate::{
     info::{FrameBuffer, FrameBufferInfo},
     memory::Memory,
 };
-use goblin::elf64::{header::Header, program_header::ProgramHeader};
+use core::{fmt::Write, ptr::NonNull};
 use uefi::{
-    prelude::{cstr16, entry, Boot, SystemTable},
-    proto::{
-        console::gop::{GraphicsOutput, PixelFormat},
-        media::file::{File, FileAttribute, FileMode, FileType, RegularFile},
+    prelude::entry,
+    proto::console::gop::{GraphicsOutput, PixelFormat},
+    table::{
+        boot::{MemoryDescriptor, MemoryType},
+        Boot, SystemTable,
     },
-    table::boot::{MemoryDescriptor, MemoryType},
-    CStr16, Handle, Status,
+    Handle, Status,
 };
+
+static mut SYSTEM_TABLE: Option<NonNull<SystemTable<Boot>>> = None;
 
 #[entry]
 fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
+    let system_table_pointer = NonNull::from(&mut system_table);
+    unsafe { SYSTEM_TABLE = Some(system_table_pointer) };
+
     system_table
         .stdout()
         .clear()
@@ -34,6 +40,8 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         init_logger(&frame_buffer);
         log::info!("Using framebuffer at {:#x}", frame_buffer.start);
     }
+
+    unsafe { SYSTEM_TABLE = None };
 
     let memory_map_buffer = {
         let memory_map_size = system_table.boot_services().memory_map_size().map_size
@@ -49,9 +57,10 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         .memory_map(memory_map_buffer)
         .unwrap();
 
-    let memory = Memory::new(memory_map);
+    let mut memory = Memory::new(memory_map);
+    load::load_kernel(handle, &system_table, &mut memory);
 
-    todo!();
+    panic!();
 }
 
 fn get_frame_buffer(handle: Handle, system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
@@ -93,68 +102,19 @@ fn init_logger(frame_buffer: &FrameBuffer) {
     log::set_max_level(log::LevelFilter::Trace);
 }
 
-fn load_kernel(handle: Handle, system_table: &SystemTable<Boot>) -> Option<()> {
-    let mut root = system_table
-        .boot_services()
-        .get_image_file_system(handle)
-        .ok()?
-        .open_volume()
-        .ok()?;
-
-    const KERNEL_NAME: &CStr16 = cstr16!("kernel.elf");
-
-    let mut kernel_file = match root
-        .open(KERNEL_NAME, FileMode::Read, FileAttribute::empty())
-        .expect("failed to load kernel")
-        .into_type()
-        .unwrap()
-    {
-        FileType::Regular(file) => file,
-        FileType::Dir(_) => panic!(),
-    };
-
-    // TODO: Smaller buffer?
-    let mut buffer = [0; core::mem::size_of::<Header>()];
-    kernel_file.read(&mut buffer).unwrap();
-
-    let kernel_header = Header::from_bytes(&buffer);
-
-    let program_header_offset = kernel_header.e_phoff;
-    let program_header_count = kernel_header.e_phnum;
-
-    const PROGRAM_HEADER_SIZE: usize = 0x38;
-    assert_eq!(kernel_header.e_phentsize as usize, PROGRAM_HEADER_SIZE);
-    assert_eq!(
-        kernel_header.e_ehsize as usize,
-        core::mem::size_of::<Header>()
-    );
-
-    let mut buffer = [0; PROGRAM_HEADER_SIZE];
-    kernel_file.set_position(program_header_offset).unwrap();
-
-    for _ in 0..program_header_count {
-        kernel_file.read(&mut buffer).unwrap();
-
-        // TODO
-        assert_eq!(
-            core::mem::size_of_val(&buffer),
-            core::mem::size_of::<ProgramHeader>(),
-        );
-        let program_header: ProgramHeader = unsafe { *(buffer.as_ptr() as *mut _) };
-
-        match program_header.p_type {
-            // Loadable
-            1 => handle_load_segment(&kernel_file, program_header),
-            // TLS
-            7 => todo!(),
-            _ => todo!(),
-        }
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    if let Some(mut system_table_pointer) = unsafe { SYSTEM_TABLE } {
+        let system_table = unsafe { system_table_pointer.as_mut() };
+        let _ = writeln!(system_table.stdout(), "{}", info);
     }
 
-    Some(())
-}
+    if let Some(logger) = logger::LOGGER.get() {
+        unsafe { logger.force_unlock() };
+    }
+    log::error!("{}", info);
 
-fn handle_load_segment(_file: &RegularFile, header: ProgramHeader) {
-    let _physical_start = header.p_paddr;
-    todo!();
+    loop {
+        unsafe { core::arch::asm!("cli", "hlt") };
+    }
 }
