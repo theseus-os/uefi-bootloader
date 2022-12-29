@@ -1,12 +1,13 @@
 #![allow(dead_code)]
-#![feature(step_trait, abi_efiapi)]
+#![feature(step_trait, abi_efiapi, maybe_uninit_slice)]
 #![no_std]
 
 mod arch;
 mod info;
-mod load;
+mod kernel;
 mod logger;
 mod memory;
+mod modules;
 
 use crate::{
     info::{FrameBuffer, FrameBufferInfo},
@@ -58,7 +59,9 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         .unwrap();
 
     let mut memory = Memory::new(memory_map);
-    load::load_kernel(handle, &system_table, &mut memory);
+
+    let _modules = modules::load(handle, &system_table);
+    kernel::load(handle, &system_table, &mut memory);
 
     panic!();
 }

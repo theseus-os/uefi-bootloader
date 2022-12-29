@@ -7,7 +7,7 @@ use uefi::{
     CStr16, Handle,
 };
 
-pub fn load_kernel<'a, 'b, I>(
+pub fn load<'a, 'b, I>(
     handle: Handle,
     system_table: &SystemTable<Boot>,
     memory: &'a mut Memory<'b, I>,

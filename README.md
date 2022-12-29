@@ -1,7 +1,7 @@
 1. Load kernel image
 2. Initialise logger/framebuffer
 3. Load modules (theseus specific)
-4. Get memory map
+4. Get memory map/exit boot services
 5. Establish a basic frame allocator
 6. Create page tables
 7. Find rsdp address?
