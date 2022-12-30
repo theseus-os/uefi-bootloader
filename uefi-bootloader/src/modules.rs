@@ -70,6 +70,7 @@ pub fn load(handle: Handle, system_table: &SystemTable<Boot>) -> &'static mut [M
                 offset: num_pages * 4096,
                 len,
             });
+            log::info!("{name_buf:?}");
 
             idx += 1;
             num_pages += calculate_pages(len);

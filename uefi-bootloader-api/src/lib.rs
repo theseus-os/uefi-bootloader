@@ -1,3 +1,4 @@
+#![feature(pointer_byte_offsets)]
 #![no_std]
 
 use core::{ops, slice, str};
@@ -47,6 +48,15 @@ pub struct MemoryRegions {
     pub(crate) len: usize,
 }
 
+impl MemoryRegions {
+    pub unsafe fn from_offset(boot_info: *mut BootInformation, offset: usize, len: usize) -> Self {
+        Self {
+            ptr: boot_info.byte_add(offset) as *mut _,
+            len,
+        }
+    }
+}
+
 impl ops::Deref for MemoryRegions {
     type Target = [MemoryRegion];
 
@@ -81,9 +91,9 @@ impl From<MemoryRegions> for &'static mut [MemoryRegion] {
 #[repr(C)]
 pub struct MemoryRegion {
     /// The physical start address of the region.
-    pub start: u64,
+    pub start: usize,
     /// The physical end address (exclusive) of the region.
-    pub end: u64,
+    pub len: usize,
     /// The memory type of the memory region.
     ///
     /// Only [`Usable`][MemoryRegionKind::Usable] regions can be freely used.
@@ -95,7 +105,7 @@ impl MemoryRegion {
     pub const fn empty() -> Self {
         MemoryRegion {
             start: 0,
-            end: 0,
+            len: 0,
             kind: MemoryRegionKind::Bootloader,
         }
     }
@@ -126,6 +136,15 @@ pub enum MemoryRegionKind {
 pub struct Modules {
     pub(crate) ptr: *mut Module,
     pub(crate) len: usize,
+}
+
+impl Modules {
+    pub unsafe fn from_offset(boot_info: *mut BootInformation, offset: usize, len: usize) -> Self {
+        Self {
+            ptr: boot_info.byte_add(offset) as *mut _,
+            len,
+        }
+    }
 }
 
 impl ops::Deref for Modules {
@@ -191,6 +210,15 @@ impl Module {
 pub struct ElfSections {
     pub(crate) ptr: *mut ElfSection,
     pub(crate) len: usize,
+}
+
+impl ElfSections {
+    pub unsafe fn from_offset(boot_info: *mut BootInformation, offset: usize, len: usize) -> Self {
+        Self {
+            ptr: boot_info.byte_add(offset) as *mut _,
+            len,
+        }
+    }
 }
 
 impl ops::Deref for ElfSections {

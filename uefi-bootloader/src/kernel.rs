@@ -6,7 +6,7 @@ use core::mem::MaybeUninit;
 use goblin::elf64::{
     header::Header,
     program_header::{ProgramHeader, SIZEOF_PHDR},
-    section_header::SIZEOF_SHDR,
+    section_header::{SectionHeader, SIZEOF_SHDR},
 };
 use uefi::{
     prelude::cstr16,
@@ -118,12 +118,30 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
         );
         let mut buffer = [0; SIZEOF_SHDR];
 
-        self.file.set_position(header.e_shoff).unwrap();
+        let shstrtab_header = header.e_shoff + (header.e_shstrndx as u64 * SIZEOF_SHDR as u64);
+        self.file.set_position(shstrtab_header).unwrap();
+        self.file.read(&mut buffer).unwrap();
+        let shstrtab_section_header: SectionHeader = unsafe { *(buffer.as_ptr() as *mut _) };
+        let shstrtab_base = shstrtab_section_header.sh_offset;
 
-        for uninit_section in sections.iter_mut() {
+        for (i, uninit_section) in sections.iter_mut().enumerate() {
+            self.file
+                .set_position(header.e_shoff + (i * SIZEOF_SHDR) as u64)
+                .unwrap();
             self.file.read(&mut buffer).unwrap();
-            let section_header = unsafe { *(buffer.as_ptr() as *mut _) };
-            uninit_section.write(section_header);
+            let section_header: SectionHeader = unsafe { *(buffer.as_ptr() as *mut _) };
+
+            let mut name = [0; 64];
+            let name_position = shstrtab_base + section_header.sh_name as u64;
+            self.file.set_position(name_position).unwrap();
+            self.file.read(&mut name).unwrap();
+
+            uninit_section.write(ElfSection {
+                name,
+                start: section_header.sh_addr as usize,
+                size: section_header.sh_size as usize,
+                flags: section_header.sh_flags,
+            });
         }
 
         unsafe { MaybeUninit::slice_assume_init_mut(sections) }

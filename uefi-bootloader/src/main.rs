@@ -25,8 +25,8 @@ use uefi::{
     Handle, Status,
 };
 use uefi_bootloader_api::{
-    BootInformation, ElfSection, FrameBuffer, FrameBufferInfo, MemoryRegion, MemoryRegionKind,
-    Module, PixelFormat,
+    BootInformation, ElfSection, ElfSections, FrameBuffer, FrameBufferInfo, MemoryRegion,
+    MemoryRegionKind, MemoryRegions, Module, Modules, PixelFormat,
 };
 
 static mut SYSTEM_TABLE: Option<NonNull<SystemTable<Boot>>> = None;
@@ -56,7 +56,6 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let (entry_point, elf_sections) = kernel::load(handle, &system_table, &mut memory);
     log::info!("loaded kernel");
     let modules = modules::load(handle, &system_table);
-    log::info!("loaded modules");
 
     let mappings = set_up_mappings(&mut memory, &frame_buffer);
     log::info!("created memory mappings");
@@ -84,6 +83,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         memory_regions: memory_regions_uninit,
         modules: modules_uninit,
         elf_sections: elf_sections_uninit,
+        kernel_mappings,
     } = allocate_boot_info(memory, memory_map_len, modules, elf_sections);
 
     let memory_map = system_table
@@ -94,8 +94,8 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let mut i = 0;
     for memory_descriptor in memory_map {
         memory_regions_uninit[i].write(MemoryRegion {
-            start: memory_descriptor.phys_start,
-            end: memory_descriptor.phys_start + 1,
+            start: memory_descriptor.phys_start as usize,
+            len: memory_descriptor.page_count as usize * 4096,
             kind: match memory_descriptor.ty {
                 MemoryType::CONVENTIONAL
                 | MemoryType::LOADER_CODE
@@ -120,9 +120,27 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             info: frame_buffer.unwrap().info,
         }),
         rsdp_address,
-        memory_regions: memory_regions.into(),
-        modules: modules.into(),
-        elf_sections: elf_sections.into(),
+        memory_regions: unsafe {
+            MemoryRegions::from_offset(
+                kernel_mappings.boot_info,
+                kernel_mappings.memory_regions_offset,
+                memory_regions.len(),
+            )
+        },
+        modules: unsafe {
+            Modules::from_offset(
+                kernel_mappings.boot_info,
+                kernel_mappings.modules_offset,
+                modules.len(),
+            )
+        },
+        elf_sections: unsafe {
+            ElfSections::from_offset(
+                kernel_mappings.boot_info,
+                kernel_mappings.elf_sections_offset,
+                elf_sections.len(),
+            )
+        },
     });
     log::info!("created boot info: {boot_info:x?}");
 
@@ -132,7 +150,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         page_table,
         stack_top: mappings.stack_top,
         entry_point,
-        boot_info,
+        boot_info: kernel_mappings.boot_info,
     };
 
     log::info!("about to switch to kernel: {context:x?}");
@@ -323,6 +341,12 @@ fn allocate_boot_info<'a, 'b>(
         memory_regions,
         modules,
         elf_sections,
+        kernel_mappings: BootInformationKernelMappings {
+            boot_info: start_page.start_address().value() as *mut _,
+            memory_regions_offset,
+            modules_offset,
+            elf_sections_offset,
+        },
     }
 }
 
@@ -332,6 +356,14 @@ struct BootInformationAllocation {
     memory_regions: &'static mut [MaybeUninit<MemoryRegion>],
     modules: &'static mut [MaybeUninit<Module>],
     elf_sections: &'static mut [MaybeUninit<ElfSection>],
+    kernel_mappings: BootInformationKernelMappings,
+}
+
+pub struct BootInformationKernelMappings {
+    boot_info: *mut BootInformation,
+    memory_regions_offset: usize,
+    modules_offset: usize,
+    elf_sections_offset: usize,
 }
 
 unsafe fn context_switch(context: Context) -> ! {
@@ -341,7 +373,7 @@ unsafe fn context_switch(context: Context) -> ! {
             in(reg) context.page_table.start_address().value(),
             in(reg) context.stack_top.value(),
             in(reg) context.entry_point.value(),
-            in("rdi") context.boot_info as *const _ as usize,
+            in("rdi") context.boot_info,
             options(noreturn),
         );
     }
@@ -352,7 +384,7 @@ struct Context {
     page_table: Frame,
     stack_top: VirtualAddress,
     entry_point: VirtualAddress,
-    boot_info: &'static mut BootInformation,
+    boot_info: *mut BootInformation,
 }
 
 #[panic_handler]
