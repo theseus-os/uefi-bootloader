@@ -19,7 +19,7 @@ use uefi::{
 };
 use zerocopy::FromBytes;
 
-pub use imp::PteFlags;
+pub use imp::{set_up_arch_specific_mappings, PteFlags};
 
 const PAGE_SIZE: usize = 4096;
 const MAX_PAGE_NUMBER: usize = usize::MAX / PAGE_SIZE;
@@ -399,9 +399,9 @@ implement_page_frame_range!(PageRange, "virtual", virt, Page, VirtualAddress);
 implement_page_frame_range!(FrameRange, "physical", phys, Frame, PhysicalAddress);
 
 pub struct Memory<'a> {
-    page_allocator: imp::PageAllocator,
-    frame_allocator: FrameAllocator<'a>,
-    mapper: imp::Mapper,
+    pub page_allocator: imp::PageAllocator,
+    pub frame_allocator: FrameAllocator<'a>,
+    pub mapper: imp::Mapper,
 }
 
 impl<'a> Memory<'a> {

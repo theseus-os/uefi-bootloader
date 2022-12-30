@@ -1,10 +1,9 @@
-use core::mem::MaybeUninit;
-
 use crate::{
     info::ElfSection,
-    memory::{Memory, PteFlags},
+    memory::{Memory, PteFlags, VirtualAddress},
     util::{allocate_slice, get_file_system_root},
 };
+use core::mem::MaybeUninit;
 use goblin::elf64::{
     header::Header,
     program_header::{ProgramHeader, SIZEOF_PHDR},
@@ -21,7 +20,7 @@ pub fn load<'a, 'b>(
     handle: Handle,
     system_table: &SystemTable<Boot>,
     memory: &'a mut Memory<'b>,
-) -> &'static mut [ElfSection] {
+) -> (VirtualAddress, &'static mut [ElfSection]) {
     let mut root = get_file_system_root(handle, system_table).unwrap();
 
     const KERNEL_NAME: &CStr16 = cstr16!("kernel.elf");
@@ -64,7 +63,7 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
         }
     }
 
-    fn load(mut self) -> &'static mut [ElfSection] {
+    fn load(mut self) -> (VirtualAddress, &'static mut [ElfSection]) {
         let mut buffer = [0; core::mem::size_of::<Header>()];
         self.file.read(&mut buffer).unwrap();
 
@@ -103,7 +102,10 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
             }
         }
 
-        self.elf_sections(kernel_header)
+        (
+            VirtualAddress::new_canonical(kernel_header.e_entry as usize),
+            self.elf_sections(kernel_header),
+        )
     }
 
     fn elf_sections(&mut self, header: &Header) -> &'static mut [ElfSection] {

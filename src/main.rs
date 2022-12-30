@@ -13,7 +13,10 @@ mod util;
 
 use crate::{
     info::{FrameBuffer, FrameBufferInfo, MemoryRegionKind},
-    memory::{Frame, Memory, Page, PhysicalAddress, PteFlags, VirtualAddress},
+    memory::{
+        set_up_arch_specific_mappings, Frame, Memory, Page, PhysicalAddress, PteFlags,
+        VirtualAddress,
+    },
 };
 use core::{alloc::Layout, arch::asm, fmt::Write, mem::MaybeUninit, ptr::NonNull, slice};
 use info::{BootInformation, ElfSection, MemoryRegion, Module};
@@ -52,10 +55,10 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let mut memory = Memory::new(system_table.boot_services());
 
+    let (entry_point, elf_sections) = kernel::load(handle, &system_table, &mut memory);
+    log::info!("loaded kernel");
     let modules = modules::load(handle, &system_table);
     log::info!("loaded modules");
-    let elf_sections = kernel::load(handle, &system_table, &mut memory);
-    log::info!("loaded kernel");
 
     let mappings = set_up_mappings(&mut memory, &frame_buffer);
     log::info!("created memory mappings");
@@ -130,7 +133,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let context = Context {
         page_table,
         stack_top: mappings.stack_top,
-        entry_point: todo!(),
+        entry_point,
         boot_info,
     };
 
@@ -194,8 +197,6 @@ fn set_up_mappings<'a, 'b>(
     memory: &'a mut Memory<'b>,
     frame_buffer: &Option<FrameBuffer>,
 ) -> Mappings {
-    // TODO: Reserve kernel frames
-
     // TODO: enable nxe and write protect bits on x86_64
 
     // TODO
@@ -244,6 +245,8 @@ fn set_up_mappings<'a, 'b>(
         start_virtual
     });
 
+    set_up_arch_specific_mappings(memory);
+
     // TODO: GDT
     // TODO: recursive index
 
@@ -286,7 +289,7 @@ fn allocate_boot_info<'a, 'b>(
     };
 
     // We want to minimise the number of frame allocations to keep
-    // num_memory_regions the same.
+    // memory_regions_count the same.
 
     let frames = memory
         .allocate_frames((start_page..=end_page).count())
