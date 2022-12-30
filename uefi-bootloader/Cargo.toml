@@ -11,6 +11,7 @@ log = "*"
 paste = "*"
 spin = "*"
 uefi = { version = "*", default-features = false }
+uefi-bootloader-api = { path = "../uefi-bootloader-api" }
 zerocopy = "*"
 
 [dependencies.goblin]

@@ -4,31 +4,29 @@
 #![no_main]
 
 mod arch;
-mod info;
 mod kernel;
 mod logger;
 mod memory;
 mod modules;
 mod util;
 
-use crate::{
-    info::{FrameBuffer, FrameBufferInfo, MemoryRegionKind},
-    memory::{
-        set_up_arch_specific_mappings, Frame, Memory, Page, PhysicalAddress, PteFlags,
-        VirtualAddress,
-    },
+use crate::memory::{
+    set_up_arch_specific_mappings, Frame, Memory, Page, PhysicalAddress, PteFlags, VirtualAddress,
 };
 use core::{alloc::Layout, arch::asm, fmt::Write, mem::MaybeUninit, ptr::NonNull, slice};
-use info::{BootInformation, ElfSection, MemoryRegion, Module};
 use uefi::{
     prelude::entry,
-    proto::console::gop::{GraphicsOutput, PixelFormat},
+    proto::console::gop::{self, GraphicsOutput},
     table::{
         boot::{AllocateType, MemoryDescriptor, MemoryType},
         cfg::{ACPI2_GUID, ACPI_GUID},
         Boot, SystemTable,
     },
     Handle, Status,
+};
+use uefi_bootloader_api::{
+    BootInformation, ElfSection, FrameBuffer, FrameBufferInfo, MemoryRegion, MemoryRegionKind,
+    Module, PixelFormat,
 };
 
 static mut SYSTEM_TABLE: Option<NonNull<SystemTable<Boot>>> = None;
@@ -158,9 +156,9 @@ fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
         width: mode_info.resolution().0,
         height: mode_info.resolution().1,
         pixel_format: match mode_info.pixel_format() {
-            PixelFormat::Rgb => info::PixelFormat::Rgb,
-            PixelFormat::Bgr => info::PixelFormat::Bgr,
-            PixelFormat::Bitmask | PixelFormat::BltOnly => {
+            gop::PixelFormat::Rgb => PixelFormat::Rgb,
+            gop::PixelFormat::Bgr => PixelFormat::Bgr,
+            gop::PixelFormat::Bitmask | gop::PixelFormat::BltOnly => {
                 panic!("Bitmask and BltOnly framebuffers are not supported")
             }
         },

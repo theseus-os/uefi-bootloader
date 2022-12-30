@@ -1,7 +1,4 @@
-use crate::{
-    info::Module,
-    util::{allocate_slice, calculate_pages, get_file_system_root},
-};
+use crate::util::{allocate_slice, calculate_pages, get_file_system_root};
 use core::mem::MaybeUninit;
 use uefi::{
     prelude::cstr16,
@@ -9,6 +6,7 @@ use uefi::{
     table::{boot::MemoryType, Boot, SystemTable},
     Handle,
 };
+use uefi_bootloader_api::Module;
 
 pub fn load(handle: Handle, system_table: &SystemTable<Boot>) -> &'static mut [Module] {
     let mut root = get_file_system_root(handle, system_table).unwrap();

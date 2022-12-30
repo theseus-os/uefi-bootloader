@@ -1,5 +1,4 @@
 use crate::{
-    info::ElfSection,
     memory::{Memory, PteFlags, VirtualAddress},
     util::{allocate_slice, get_file_system_root},
 };
@@ -15,6 +14,7 @@ use uefi::{
     table::{boot::MemoryType, Boot, SystemTable},
     CStr16, Handle,
 };
+use uefi_bootloader_api::ElfSection;
 
 pub fn load<'a, 'b>(
     handle: Handle,
@@ -118,12 +118,12 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
         );
         let mut buffer = [0; SIZEOF_SHDR];
 
-        self.file.set_position(header.e_shoff as u64).unwrap();
+        self.file.set_position(header.e_shoff).unwrap();
 
-        for i in 0..program_header_count as usize {
+        for uninit_section in sections.iter_mut() {
             self.file.read(&mut buffer).unwrap();
             let section_header = unsafe { *(buffer.as_ptr() as *mut _) };
-            sections[i].write(section_header);
+            uninit_section.write(section_header);
         }
 
         unsafe { MaybeUninit::slice_assume_init_mut(sections) }

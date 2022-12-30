@@ -1,3 +1,5 @@
+#![no_std]
+
 use core::{ops, slice, str};
 
 #[derive(Debug)]
@@ -160,7 +162,8 @@ impl From<Modules> for &'static mut [Module] {
 #[repr(C)]
 pub struct Module {
     /// The name of the module encoded as a null-terminated UTF-8 string.
-    pub(crate) name: [u8; 64],
+    #[doc(hidden)]
+    pub name: [u8; 64],
     /// The offset in bytes from the start of the modules.
     ///
     /// The offset is guaranteed to be page aligned.
@@ -224,7 +227,8 @@ impl From<ElfSections> for &'static mut [ElfSection] {
 #[repr(C)]
 pub struct ElfSection {
     /// The name of the section encoded as a null-terminated UTF-8 string.
-    pub(crate) name: [u8; 64],
+    #[doc(hidden)]
+    pub name: [u8; 64],
     /// The starting virtual address of the section.
     pub start: usize,
     /// The size of the section in bytes.
