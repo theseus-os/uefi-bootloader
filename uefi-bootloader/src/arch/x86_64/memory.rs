@@ -33,6 +33,7 @@ pub fn set_up_arch_specific_mappings(memory: &mut Memory) {
         memory.mapper.inner.level_4_table() as *const _ as u64,
     ))
     .unwrap();
+    #[allow(clippy::inconsistent_digit_grouping)]
     let p4_index = x86_64::VirtAddr::new(0o177777_776_000_000_000_0000).p4_index();
     let entry = &mut memory.mapper.inner.level_4_table()[p4_index];
     entry.set_frame(p4_frame, PteFlags::PRESENT | PteFlags::WRITABLE);
@@ -155,12 +156,12 @@ impl Mapper {
         PhysicalAddress::new_canonical(self.inner.level_4_table() as *const _ as usize)
     }
 
-    pub fn map<'a>(
+    pub fn map(
         &mut self,
         page: Page,
         frame: Frame,
         flags: PteFlags,
-        frame_allocator: &mut FrameAllocator<'a>,
+        frame_allocator: &mut FrameAllocator,
     ) {
         // TODO: Unsafe
         unsafe {
