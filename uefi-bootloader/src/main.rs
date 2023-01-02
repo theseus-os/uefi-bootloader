@@ -13,7 +13,10 @@ mod util;
 use crate::memory::{
     set_up_arch_specific_mappings, Frame, Memory, Page, PhysicalAddress, PteFlags, VirtualAddress,
 };
-use core::{alloc::Layout, arch::asm, fmt::Write, mem::MaybeUninit, ptr::NonNull, slice};
+use core::{
+    alloc::Layout, arch::asm, fmt::Write, iter::Peekable, mem::MaybeUninit, ptr::NonNull, slice,
+};
+use log::{error, info};
 use uefi::{
     prelude::entry,
     proto::console::gop::{self, GraphicsOutput},
@@ -44,7 +47,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let frame_buffer = get_frame_buffer(&system_table);
     if let Some(frame_buffer) = frame_buffer {
         init_logger(&frame_buffer);
-        log::info!("using framebuffer at {:#x}", frame_buffer.start);
+        info!("using framebuffer at {:#x}", frame_buffer.start);
     }
 
     unsafe { SYSTEM_TABLE = None };
@@ -54,29 +57,30 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let mut memory = Memory::new(system_table.boot_services());
 
     let (entry_point, elf_sections) = kernel::load(handle, &system_table, &mut memory);
-    log::info!("loaded kernel");
+    info!("loaded kernel");
     let modules = modules::load(handle, &system_table);
 
     let mappings = set_up_mappings(&mut memory, &frame_buffer);
-    log::info!("created memory mappings");
+    info!("created memory mappings");
 
     let page_table = memory.page_table();
 
-    let memory_map_len = system_table.boot_services().memory_map_size().map_size + 8;
+    let memory_map_size = system_table.boot_services().memory_map_size().map_size
+        + 8 * core::mem::size_of::<MemoryDescriptor>();
 
     let memory_map_storage = {
-        let memory_map_size = memory_map_len * core::mem::size_of::<MemoryDescriptor>();
         let pointer = system_table
             .boot_services()
             .allocate_pages(
                 AllocateType::AnyPages,
                 MemoryType::LOADER_DATA,
-                util::calculate_pages(memory_map_len),
+                util::calculate_pages(memory_map_size),
             )
             .unwrap();
         unsafe { slice::from_raw_parts_mut(pointer as *mut _, memory_map_size) }
     };
 
+    let memory_map_len = memory_map_size / core::mem::size_of::<MemoryDescriptor>();
     let BootInformationAllocation {
         size: boot_info_size,
         boot_info: boot_info_uninit,
@@ -91,9 +95,8 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         .unwrap()
         .1;
 
-    let mut i = 0;
-    for memory_descriptor in memory_map {
-        memory_regions_uninit[i].write(MemoryRegion {
+    fn convert(memory_descriptor: &MemoryDescriptor) -> MemoryRegion {
+        MemoryRegion {
             start: memory_descriptor.phys_start as usize,
             len: memory_descriptor.page_count as usize * 4096,
             kind: match memory_descriptor.ty {
@@ -104,7 +107,46 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
                 | MemoryType::BOOT_SERVICES_DATA => MemoryRegionKind::Usable,
                 tag => MemoryRegionKind::UnknownUefi(tag.0),
             },
-        });
+        }
+    }
+
+    pub struct MemoryDescriptorConsolidator<'a, I>
+    where
+        I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
+    {
+        inner: Peekable<I>,
+    }
+
+    impl<'a, I> Iterator for MemoryDescriptorConsolidator<'a, I>
+    where
+        I: ExactSizeIterator<Item = &'a MemoryDescriptor> + Clone,
+    {
+        type Item = MemoryRegion;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let mut area = convert(self.inner.next()?);
+
+            // UEFI often separates contiguous memory into separate memory regions. We
+            // consolidate them to minimise the number of entries in the frame allocator's
+            // reserved and available lists.
+            while let Some(next) = self.inner.next_if(|next| {
+                let next = convert(next);
+                area.kind == next.kind && (area.start + area.len) == next.start
+            }) {
+                let next = convert(next);
+                area.len += next.len;
+            }
+
+            Some(area)
+        }
+    }
+
+    let memory_map_iter = MemoryDescriptorConsolidator {
+        inner: memory_map.peekable(),
+    };
+    let mut i = 0;
+    for memory_region in memory_map_iter {
+        memory_regions_uninit[i].write(memory_region);
         i += 1;
     }
 
@@ -142,9 +184,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
             )
         },
     });
-    log::info!("created boot info: {boot_info:x?}");
-
-    log::info!("exited boot services");
+    info!("created boot info: {boot_info:x?}");
 
     let context = Context {
         page_table,
@@ -153,7 +193,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         boot_info: kernel_mappings.boot_info,
     };
 
-    log::info!("about to switch to kernel: {context:x?}");
+    info!("about to switch to kernel: {context:x?}");
     unsafe { context_switch(context) };
 }
 
@@ -359,6 +399,7 @@ struct BootInformationAllocation {
     kernel_mappings: BootInformationKernelMappings,
 }
 
+#[derive(Debug)]
 pub struct BootInformationKernelMappings {
     boot_info: *mut BootInformation,
     memory_regions_offset: usize,
@@ -397,7 +438,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(logger) = logger::LOGGER.get() {
         unsafe { logger.force_unlock() };
     }
-    log::error!("{info}");
+    error!("{info}");
 
     loop {
         unsafe { asm!("cli", "hlt") };

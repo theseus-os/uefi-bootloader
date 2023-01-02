@@ -173,7 +173,7 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
         // load addresses to be respected.
         self.file.read(slice).unwrap();
 
-        let bss_start = (segment.p_offset + segment.p_filesz) as *mut u8;
+        let bss_start = (segment.p_paddr + segment.p_filesz) as *mut u8;
         let bss_size = (segment.p_memsz - segment.p_filesz) as usize;
 
         unsafe { core::ptr::write_bytes(bss_start, 0, bss_size) }

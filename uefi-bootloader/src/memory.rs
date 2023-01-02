@@ -479,7 +479,7 @@ impl<'a> FrameAllocator<'a> {
 
     pub fn allocate_frames(&mut self, count: usize) -> Option<FrameRange> {
         self.boot_services
-            .allocate_pages(AllocateType::AnyPages, KERNEL_MEMORY, 1)
+            .allocate_pages(AllocateType::AnyPages, KERNEL_MEMORY, count)
             .ok()
             .map(|address| {
                 FrameRange::from_phys_addr(
