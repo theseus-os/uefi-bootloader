@@ -25,7 +25,8 @@ pub fn load(handle: Handle, system_table: &SystemTable<Boot>) -> &'static mut [M
         if !info.attribute().contains(FileAttribute::DIRECTORY) {
             num_modules += 1;
             // Theseus modules must not share pages i.e. the next module starts on a new
-            // page. TODO: Ideally we'd remove this constraint.
+            // page.
+            // TODO: Ideally we'd remove this constraint.
             num_pages += calculate_pages(info.file_size() as usize);
         }
     }

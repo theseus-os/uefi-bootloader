@@ -74,7 +74,6 @@ impl PageAllocator {
         let mut page_allocator = Self {
             level_4_entries: [false; 512],
         };
-        // TODO: Why?
         page_allocator.level_4_entries[0] = true;
 
         page_allocator
@@ -106,7 +105,6 @@ impl PageAllocator {
         const LEVEL_4_SIZE: usize = 4096 * 512 * 512 * 512;
         let num_level_4_entries = (len + (LEVEL_4_SIZE - 1)) / LEVEL_4_SIZE;
 
-        // TODO: Explain
         paging::Page::from_page_table_indices_1gib(
             self.get_free_entries(num_level_4_entries as u64),
             PageTableIndex::new(0),
@@ -143,7 +141,6 @@ impl Mapper {
         let frame = frame_allocator.allocate_frame().unwrap();
         // Physical memory is identity-mapped.
         let pointer = frame.start_address().value() as *mut _;
-        // TODO
         unsafe { *pointer = PageTable::new() };
         let level_4_table = unsafe { &mut *pointer };
         Self {
@@ -163,7 +160,6 @@ impl Mapper {
         flags: PteFlags,
         frame_allocator: &mut FrameAllocator,
     ) {
-        // TODO: Unsafe
         unsafe {
             paging::Mapper::<paging::Size4KiB>::map_to(
                 &mut self.inner,

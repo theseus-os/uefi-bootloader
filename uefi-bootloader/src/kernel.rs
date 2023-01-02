@@ -81,7 +81,7 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
                 .unwrap();
             self.file.read(&mut buffer).unwrap();
 
-            // TODO
+            // TODO: Is there a neater way of doing this?
             let program_header: ProgramHeader = unsafe { *(buffer.as_ptr() as *mut _) };
 
             // .got section
@@ -94,7 +94,6 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
                 // Loadable
                 1 => self.handle_load_segment(program_header),
                 // TLS
-                // TODO?
                 7 => {}
                 // Probably GNU_STACK
                 // TODO: Remove from nano_core binary?

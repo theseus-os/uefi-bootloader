@@ -1,3 +1,7 @@
+//! This crate heavily borrows from rust-osdev/bootloader, some modules such as
+//! `logger` are downright copied. Ideally the modifications would be upstreamed
+//! one day.
+
 #![allow(dead_code)]
 #![feature(step_trait, abi_efiapi, maybe_uninit_slice, maybe_uninit_write_slice)]
 #![no_std]
@@ -249,9 +253,9 @@ fn get_rsdp_address(system_table: &SystemTable<Boot>) -> Option<usize> {
 }
 
 fn set_up_mappings(memory: &mut Memory, frame_buffer: &Option<FrameBuffer>) -> Mappings {
-    // TODO: enable nxe and write protect bits on x86_64
+    // TODO: Enable nxe and write protect bits on x86_64.
 
-    // TODO
+    // TODO: Depend on kernel_config?
     const STACK_SIZE: usize = 18 * 4096;
 
     let stack_start_address = memory.get_free_address(STACK_SIZE);
@@ -265,11 +269,15 @@ fn set_up_mappings(memory: &mut Memory, frame_buffer: &Option<FrameBuffer>) -> M
     // The +1 means the guard page isn't mapped to a frame.
     for page in (stack_start + 1)..=stack_end {
         let frame = memory.allocate_frame().unwrap();
-        // TODO: No execute?
-        memory.map(page, frame, PteFlags::PRESENT | PteFlags::WRITABLE);
+        memory.map(
+            page,
+            frame,
+            PteFlags::PRESENT | PteFlags::WRITABLE | PteFlags::NO_EXECUTE,
+        );
     }
 
-    // TODO: Explain
+    // Identity-map the context switch function so that when it switches to the new
+    // page table, it continues executing.
     memory.map(
         Page::containing_address(VirtualAddress::new_canonical(context_switch as usize)),
         Frame::containing_address(PhysicalAddress::new_canonical(context_switch as usize)),
@@ -298,9 +306,6 @@ fn set_up_mappings(memory: &mut Memory, frame_buffer: &Option<FrameBuffer>) -> M
     });
 
     set_up_arch_specific_mappings(memory);
-
-    // TODO: GDT
-    // TODO: recursive index
 
     Mappings {
         stack_top: (stack_end + 1).start_address(),
@@ -346,7 +351,6 @@ fn allocate_boot_info(
     let frames = memory
         .allocate_frames((start_page..=end_page).count())
         .unwrap();
-    // Abuse UEFI's identy-mapping
     let boot_info_address = frames.start_address();
 
     for (page, frame) in (start_page..=end_page).zip(frames) {
@@ -386,6 +390,7 @@ fn allocate_boot_info(
     }
 }
 
+#[derive(Debug)]
 struct BootInformationAllocation {
     size: usize,
     boot_info: &'static mut MaybeUninit<BootInformation>,
@@ -403,6 +408,7 @@ pub struct BootInformationKernelMappings {
     elf_sections_offset: usize,
 }
 
+/// The context necessary to switch to the kernel.
 #[derive(Debug)]
 struct Context {
     page_table: Frame,
