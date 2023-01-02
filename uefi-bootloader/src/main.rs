@@ -10,12 +10,11 @@ mod memory;
 mod modules;
 mod util;
 
+use crate::arch::context_switch;
 use crate::memory::{
     set_up_arch_specific_mappings, Frame, Memory, Page, PhysicalAddress, PteFlags, VirtualAddress,
 };
-use core::{
-    alloc::Layout, arch::asm, fmt::Write, iter::Peekable, mem::MaybeUninit, ptr::NonNull, slice,
-};
+use core::{alloc::Layout, fmt::Write, iter::Peekable, mem::MaybeUninit, ptr::NonNull, slice};
 use log::{error, info};
 use uefi::{
     prelude::entry,
@@ -404,19 +403,6 @@ pub struct BootInformationKernelMappings {
     elf_sections_offset: usize,
 }
 
-unsafe fn context_switch(context: Context) -> ! {
-    unsafe {
-        asm!(
-            "mov cr3, {}; mov rsp, {}; jmp {}",
-            in(reg) context.page_table.start_address().value(),
-            in(reg) context.stack_top.value(),
-            in(reg) context.entry_point.value(),
-            in("rdi") context.boot_info,
-            options(noreturn),
-        );
-    }
-}
-
 #[derive(Debug)]
 struct Context {
     page_table: Frame,
@@ -437,7 +423,5 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     }
     error!("{info}");
 
-    loop {
-        unsafe { asm!("cli", "hlt") };
-    }
+    arch::halt();
 }
