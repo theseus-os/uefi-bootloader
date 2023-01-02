@@ -249,10 +249,7 @@ fn get_rsdp_address(system_table: &SystemTable<Boot>) -> Option<usize> {
     rsdp.map(|entry| entry.address as usize)
 }
 
-fn set_up_mappings<'a, 'b>(
-    memory: &'a mut Memory<'b>,
-    frame_buffer: &Option<FrameBuffer>,
-) -> Mappings {
+fn set_up_mappings(memory: &mut Memory, frame_buffer: &Option<FrameBuffer>) -> Mappings {
     // TODO: enable nxe and write protect bits on x86_64
 
     // TODO
@@ -317,8 +314,8 @@ struct Mappings {
     frame_buffer: Option<VirtualAddress>,
 }
 
-fn allocate_boot_info<'a, 'b>(
-    mut memory: Memory<'b>,
+fn allocate_boot_info(
+    mut memory: Memory,
     memory_regions_count: usize,
     modules: &'static [Module],
     elf_sections: &'static [ElfSection],

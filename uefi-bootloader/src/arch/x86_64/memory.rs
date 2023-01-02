@@ -1,13 +1,7 @@
 use crate::memory::{Frame, FrameAllocator, Memory, Page, PhysicalAddress, VirtualAddress};
 use bit_field::BitField;
 use goblin::elf64::program_header::ProgramHeader;
-use x86_64::{
-    instructions::segmentation::{self, Segment},
-    structures::{
-        gdt::{Descriptor, GlobalDescriptorTable},
-        paging::{self, OffsetPageTable, PageTable, PageTableIndex},
-    },
-};
+use x86_64::structures::paging::{self, OffsetPageTable, PageTable, PageTableIndex};
 
 pub use x86_64::structures::paging::PageTableFlags as PteFlags;
 
@@ -35,13 +29,6 @@ pub const fn canonicalize_physical_address(phys_addr: usize) -> usize {
 }
 
 pub fn set_up_arch_specific_mappings(memory: &mut Memory) {
-    // let frame = memory.allocate_frame().unwrap();
-    // create_and_load_gdt(frame);
-    // let page =
-    //     Page::containing_address(VirtualAddress::new_canonical(frame.start_address().value()));
-    // memory.map(page, frame, PteFlags::PRESENT);
-    // TODO: Do we need to load a GDT
-
     let p4_frame = paging::PhysFrame::from_start_address(x86_64::PhysAddr::new(
         memory.mapper.inner.level_4_table() as *const _ as u64,
     ))
