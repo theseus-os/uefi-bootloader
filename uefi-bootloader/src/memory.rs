@@ -151,7 +151,7 @@ macro_rules! implement_page_frame {
             #[doc = "A `" $TypeName "` is a chunk of **" $desc "** memory aligned to a [`PAGE_SIZE`] boundary."]
             #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
             pub struct $TypeName {
-                number: usize,
+                pub(crate) number: usize,
             }
 
             impl $TypeName {
@@ -230,38 +230,6 @@ macro_rules! implement_page_frame {
 
 implement_page_frame!(Page, "virtual", "v", VirtualAddress);
 implement_page_frame!(Frame, "physical", "p", PhysicalAddress);
-
-// Implement other functions for the `Page` type that aren't relevant for
-// `Frame.
-impl Page {
-    /// Returns the 9-bit part of this `Page`'s [`VirtualAddress`] that is the
-    /// index into the P4 page table entries list.
-    pub const fn p4_index(&self) -> usize {
-        (self.number >> 27) & 0x1FF
-    }
-
-    /// Returns the 9-bit part of this `Page`'s [`VirtualAddress`] that is the
-    /// index into the P3 page table entries list.
-    pub const fn p3_index(&self) -> usize {
-        (self.number >> 18) & 0x1FF
-    }
-
-    /// Returns the 9-bit part of this `Page`'s [`VirtualAddress`] that is the
-    /// index into the P2 page table entries list.
-    pub const fn p2_index(&self) -> usize {
-        (self.number >> 9) & 0x1FF
-    }
-
-    /// Returns the 9-bit part of this `Page`'s [`VirtualAddress`] that is the
-    /// index into the P1 page table entries list.
-    ///
-    /// Using this returned `usize` value as an index into the P1 entries list
-    /// will give you the final PTE, from which you can extract the mapped
-    /// [`Frame`]  using `PageTableEntry::pointed_frame()`.
-    pub const fn p1_index(&self) -> usize {
-        self.number & 0x1FF
-    }
-}
 
 /// A macro for defining `PageRange` and `FrameRange` structs
 /// and implementing their common traits, which are generally identical.

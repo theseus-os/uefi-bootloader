@@ -40,7 +40,7 @@ impl PageAllocator {
         unimplemented!();
     }
 
-    pub fn mark_segment_as_used(&mut self, _segment: ProgramHeader) -> VirtualAddress {
+    pub fn mark_segment_as_used(&mut self, _segment: ProgramHeader) {
         unimplemented!();
     }
 }

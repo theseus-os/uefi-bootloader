@@ -65,6 +65,16 @@ impl From<Frame> for paging::PhysFrame {
     }
 }
 
+// Implement other functions for the `Page` type that aren't relevant for
+// `Frame.
+impl Page {
+    /// Returns the 9-bit part of this `Page`'s [`VirtualAddress`] that is the
+    /// index into the P4 page table entries list.
+    const fn p4_index(&self) -> usize {
+        (self.number >> 27) & 0x1FF
+    }
+}
+
 pub struct PageAllocator {
     level_4_entries: [bool; 512],
 }
@@ -105,6 +115,7 @@ impl PageAllocator {
         const LEVEL_4_SIZE: usize = 4096 * 512 * 512 * 512;
         let num_level_4_entries = (len + (LEVEL_4_SIZE - 1)) / LEVEL_4_SIZE;
 
+        // This is technically a 512 GiB page.
         paging::Page::from_page_table_indices_1gib(
             self.get_free_entries(num_level_4_entries as u64),
             PageTableIndex::new(0),
