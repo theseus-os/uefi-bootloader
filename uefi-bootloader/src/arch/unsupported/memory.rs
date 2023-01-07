@@ -1,23 +1,26 @@
-use crate::memory::{Frame, FrameAllocator, Memory, Page, PhysicalAddress, VirtualAddress};
+use crate::{
+    memory::{Frame, FrameAllocator, Page, VirtualAddress},
+    RuntimeContext,
+};
 use goblin::elf64::program_header::ProgramHeader;
 
-pub fn is_canonical_virtual_address(_virtual_address: usize) -> bool {
+pub(crate) fn is_canonical_virtual_address(_virtual_address: usize) -> bool {
     unimplemented!();
 }
 
-pub const fn canonicalize_virtual_address(_virtual_address: usize) -> usize {
+pub(crate) const fn canonicalize_virtual_address(_virtual_address: usize) -> usize {
     unimplemented!();
 }
 
-pub fn is_canonical_physical_address(_physical_address: usize) -> bool {
+pub(crate) fn is_canonical_physical_address(_physical_address: usize) -> bool {
     unimplemented!();
 }
 
-pub const fn canonicalize_physical_address(_physical_address: usize) -> usize {
+pub(crate) const fn canonicalize_physical_address(_physical_address: usize) -> usize {
     unimplemented!();
 }
 
-pub fn set_up_arch_specific_mappings(_memory: &mut Memory) {
+pub(crate) fn set_up_arch_specific_mappings(_context: &mut RuntimeContext) {
     unimplemented!();
 }
 
@@ -32,15 +35,15 @@ bitflags::bitflags! {
 pub struct PageAllocator;
 
 impl PageAllocator {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 
-    pub fn get_free_address(&mut self, _len: usize) -> VirtualAddress {
+    pub(crate) fn get_free_address(&mut self, _len: usize) -> VirtualAddress {
         unimplemented!();
     }
 
-    pub fn mark_segment_as_used(&mut self, _segment: ProgramHeader) {
+    pub(crate) fn mark_segment_as_used(&mut self, _segment: ProgramHeader) {
         unimplemented!();
     }
 }
@@ -48,21 +51,33 @@ impl PageAllocator {
 pub struct Mapper;
 
 impl Mapper {
-    pub fn new(_frame_allocator: &mut FrameAllocator) -> Self {
-        Self
-    }
-
-    pub fn address(&mut self) -> PhysicalAddress {
+    pub(crate) fn new<T>(_frame_allocator: &mut T) -> Self
+    where
+        T: FrameAllocator,
+    {
         unimplemented!();
     }
 
-    pub fn map(
+    pub(crate) fn current<T>(_frame_allocator: &mut T) -> Self
+    where
+        T: FrameAllocator,
+    {
+        unimplemented!();
+    }
+
+    pub(crate) fn frame(&mut self) -> Frame {
+        unimplemented!();
+    }
+
+    pub(crate) fn map<T>(
         &mut self,
         _page: Page,
         _frame: Frame,
         _flags: PteFlags,
-        _frame_allocator: &mut FrameAllocator,
-    ) {
+        _frame_allocator: &mut T,
+    ) where
+        T: FrameAllocator,
+    {
         unimplemented!()
     }
 }

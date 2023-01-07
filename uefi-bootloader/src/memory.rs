@@ -453,7 +453,7 @@ impl LegacyFrameAllocator {
 
         for descriptor in self.original {
             if iterated_through_used_descriptors
-                || descriptor.phys_start < 0x_10000
+                || descriptor.phys_start < 0x1_0000
                 || descriptor_kind(descriptor) != MemoryRegionKind::Usable
             {
                 memory_map[index].write(MemoryRegion {

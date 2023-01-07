@@ -236,13 +236,4 @@ impl Mapper {
         // TODO
         .flush();
     }
-
-    pub(crate) fn translate(&self, virtual_address: VirtualAddress) -> Option<x86_64::PhysAddr> {
-        paging::Mapper::<paging::Size4KiB>::translate_page(
-            &self.inner,
-            paging::Page::containing_address(x86_64::VirtAddr::new(virtual_address.value() as u64))
-        )
-        .ok()
-        .map(|frame| frame.start_address())
-    }
 }

@@ -73,9 +73,6 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         page_table_frame.start_address()
     );
 
-    let entry_physical_address = context.mapper.translate(entry_point);
-    log::info!("ENTRY PHYS ADDR: {entry_physical_address:x?}");
-
     let boot_info = context.create_boot_info(frame_buffer, rsdp_address, modules, elf_sections);
     info!("created boot info: {boot_info:x?}");
 
