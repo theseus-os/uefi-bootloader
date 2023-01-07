@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["uefi-bootloader", "uefi-bootloader-api"]
+
+# This is so the git dependency on UEFI works.
+[patch.crates-io]
+uefi-macros = { git = "https://github.com/rust-osdev/uefi-rs" }

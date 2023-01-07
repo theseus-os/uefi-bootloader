@@ -10,7 +10,7 @@ derive_more = "*"
 log = "*"
 paste = "*"
 spin = "*"
-uefi = { version = "*", default-features = false }
+uefi = { git = "https://github.com/rust-osdev/uefi-rs", default-features = false }
 uefi-bootloader-api = { path = "../uefi-bootloader-api" }
 zerocopy = "*"
 

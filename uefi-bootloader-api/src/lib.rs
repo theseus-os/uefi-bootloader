@@ -17,6 +17,7 @@ pub struct BootInformation {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct FrameBuffer {
+    /// The framebuffer's physical address.
     pub start: usize,
     pub info: FrameBufferInfo,
 }
@@ -46,15 +47,6 @@ pub enum PixelFormat {
 pub struct MemoryRegions {
     pub(crate) ptr: *mut MemoryRegion,
     pub(crate) len: usize,
-}
-
-impl MemoryRegions {
-    pub unsafe fn from_offset(boot_info: *mut BootInformation, offset: usize, len: usize) -> Self {
-        Self {
-            ptr: boot_info.byte_add(offset) as *mut _,
-            len,
-        }
-    }
 }
 
 impl ops::Deref for MemoryRegions {
@@ -138,15 +130,6 @@ pub struct Modules {
     pub(crate) len: usize,
 }
 
-impl Modules {
-    pub unsafe fn from_offset(boot_info: *mut BootInformation, offset: usize, len: usize) -> Self {
-        Self {
-            ptr: boot_info.byte_add(offset) as *mut _,
-            len,
-        }
-    }
-}
-
 impl ops::Deref for Modules {
     type Target = [Module];
 
@@ -210,15 +193,6 @@ impl Module {
 pub struct ElfSections {
     pub(crate) ptr: *mut ElfSection,
     pub(crate) len: usize,
-}
-
-impl ElfSections {
-    pub unsafe fn from_offset(boot_info: *mut BootInformation, offset: usize, len: usize) -> Self {
-        Self {
-            ptr: boot_info.byte_add(offset) as *mut _,
-            len,
-        }
-    }
 }
 
 impl ops::Deref for ElfSections {

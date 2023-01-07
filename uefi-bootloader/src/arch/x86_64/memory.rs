@@ -1,7 +1,13 @@
-use crate::memory::{Frame, FrameAllocator, Memory, Page, PhysicalAddress, VirtualAddress};
+use crate::{
+    memory::{Frame, FrameAllocator, Page, PhysicalAddress, VirtualAddress},
+    RuntimeContext,
+};
 use bit_field::BitField;
 use goblin::elf64::program_header::ProgramHeader;
-use x86_64::structures::paging::{self, OffsetPageTable, PageTable, PageTableIndex};
+use x86_64::{
+    registers::control::{Cr3, Cr3Flags},
+    structures::paging::{self, OffsetPageTable, PageTable, PageTableIndex},
+};
 
 pub use x86_64::structures::paging::PageTableFlags as PteFlags;
 
@@ -28,14 +34,14 @@ pub const fn canonicalize_physical_address(phys_addr: usize) -> usize {
     phys_addr & 0x000F_FFFF_FFFF_FFFF
 }
 
-pub fn set_up_arch_specific_mappings(memory: &mut Memory) {
+pub(crate) fn set_up_arch_specific_mappings(context: &mut RuntimeContext) {
     let p4_frame = paging::PhysFrame::from_start_address(x86_64::PhysAddr::new(
-        memory.mapper.inner.level_4_table() as *const _ as u64,
+        context.mapper.inner.level_4_table() as *const _ as u64,
     ))
     .unwrap();
     #[allow(clippy::inconsistent_digit_grouping)]
     let p4_index = x86_64::VirtAddr::new(0o177777_776_000_000_000_0000).p4_index();
-    let entry = &mut memory.mapper.inner.level_4_table()[p4_index];
+    let entry = &mut context.mapper.inner.level_4_table()[p4_index];
     entry.set_frame(p4_frame, PteFlags::PRESENT | PteFlags::WRITABLE);
 }
 
@@ -137,19 +143,33 @@ impl PageAllocator {
     }
 }
 
-unsafe impl<'a> paging::FrameAllocator<paging::page::Size4KiB> for FrameAllocator<'a> {
+struct FrameAllocatorWrapper<'a, T>
+where
+    T: FrameAllocator,
+{
+    inner: &'a mut T,
+}
+
+unsafe impl<'a, T> paging::FrameAllocator<paging::page::Size4KiB> for FrameAllocatorWrapper<'a, T>
+where
+    T: FrameAllocator,
+{
     fn allocate_frame(&mut self) -> Option<paging::PhysFrame<paging::page::Size4KiB>> {
-        FrameAllocator::allocate_frame(self).map(|frame| frame.into())
+        FrameAllocator::allocate_frame(self.inner).map(|frame| frame.into())
     }
 }
 
-pub struct Mapper {
+pub(crate) struct Mapper {
     inner: OffsetPageTable<'static>,
 }
 
 impl Mapper {
-    pub fn new(frame_allocator: &mut FrameAllocator) -> Self {
+    pub(crate) fn new<T>(frame_allocator: &mut T) -> Self
+    where
+        T: FrameAllocator,
+    {
         let frame = frame_allocator.allocate_frame().unwrap();
+        log::info!("allocating frame allocator at: {frame:x?}");
         // Physical memory is identity-mapped.
         let pointer = frame.start_address().value() as *mut _;
         unsafe { *pointer = PageTable::new() };
@@ -159,29 +179,70 @@ impl Mapper {
         }
     }
 
-    // TODO: This should take a shared reference to self.
-    pub fn address(&mut self) -> PhysicalAddress {
-        PhysicalAddress::new_canonical(self.inner.level_4_table() as *const _ as usize)
+    pub(crate) fn current<T>(frame_allocator: &mut T) -> Self
+    where
+        T: FrameAllocator,
+    {
+        let old_table = {
+            let frame = Cr3::read_raw().0;
+            let pointer = frame.start_address().as_u64() as *mut PageTable;
+            unsafe { &*pointer }
+        };
+
+        let new_frame = frame_allocator.allocate_frame().unwrap();
+        let new_table = {
+            let pointer = new_frame.start_address().value() as *mut PageTable;
+            unsafe {
+                pointer.write(PageTable::new());
+                &mut *pointer
+            }
+        };
+        new_table[0] = old_table[0].clone();
+
+        unsafe { Cr3::write(new_frame.into(), Cr3Flags::empty()) };
+        Self {
+            inner: unsafe { OffsetPageTable::new(new_table, x86_64::VirtAddr::zero()) },
+        }
     }
 
-    pub fn map(
+    // TODO: This should take a shared reference to self.
+    pub(crate) fn frame(&mut self) -> Frame {
+        Frame::containing_address(PhysicalAddress::new_canonical(self.inner.level_4_table()
+            as *const _
+            as usize))
+    }
+
+    pub(crate) fn map<T>(
         &mut self,
         page: Page,
         frame: Frame,
         flags: PteFlags,
-        frame_allocator: &mut FrameAllocator,
-    ) {
+        frame_allocator: &mut T,
+    ) where
+        T: FrameAllocator,
+    {
         unsafe {
             paging::Mapper::<paging::Size4KiB>::map_to(
                 &mut self.inner,
                 page.into(),
                 frame.into(),
                 flags,
-                frame_allocator,
+                &mut FrameAllocatorWrapper {
+                    inner: frame_allocator,
+                },
             )
         }
         .unwrap()
         // TODO
         .flush();
+    }
+
+    pub(crate) fn translate(&self, virtual_address: VirtualAddress) -> Option<x86_64::PhysAddr> {
+        paging::Mapper::<paging::Size4KiB>::translate_page(
+            &self.inner,
+            paging::Page::containing_address(x86_64::VirtAddr::new(virtual_address.value() as u64))
+        )
+        .ok()
+        .map(|frame| frame.start_address())
     }
 }

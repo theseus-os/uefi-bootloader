@@ -1,7 +1,4 @@
-use crate::{
-    memory::{Memory, PteFlags, VirtualAddress},
-    util::{allocate_slice, get_file_system_root},
-};
+use crate::{memory::VirtualAddress, BootContext};
 use core::mem::MaybeUninit;
 use goblin::elf64::{
     header::Header,
@@ -11,58 +8,41 @@ use goblin::elf64::{
 use uefi::{
     prelude::cstr16,
     proto::media::file::{File, FileAttribute, FileMode, FileType, RegularFile},
-    table::{boot::MemoryType, Boot, SystemTable},
-    CStr16, Handle,
+    table::boot::MemoryType,
+    CStr16,
 };
 use uefi_bootloader_api::ElfSection;
 
-pub fn load<'a, 'b>(
-    handle: Handle,
-    system_table: &SystemTable<Boot>,
-    memory: &'a mut Memory<'b>,
-) -> (VirtualAddress, &'static mut [ElfSection]) {
-    let mut root = get_file_system_root(handle, system_table).unwrap();
+impl BootContext {
+    pub(crate) fn load_kernel(&mut self) -> (VirtualAddress, &'static mut [ElfSection]) {
+        let mut root = self.open_file_system_root().unwrap();
 
-    const KERNEL_NAME: &CStr16 = cstr16!("kernel.elf");
+        const KERNEL_NAME: &CStr16 = cstr16!("kernel.elf");
 
-    let kernel_file = match root
-        .open(KERNEL_NAME, FileMode::Read, FileAttribute::empty())
-        .expect("failed to load kernel")
-        .into_type()
-        .unwrap()
-    {
-        FileType::Regular(file) => file,
-        FileType::Dir(_) => panic!(),
-    };
+        let file = match root
+            .open(KERNEL_NAME, FileMode::Read, FileAttribute::empty())
+            .expect("failed to load kernel")
+            .into_type()
+            .unwrap()
+        {
+            FileType::Regular(file) => file,
+            FileType::Dir(_) => panic!(),
+        };
 
-    let loader = unsafe { Loader::new(kernel_file, memory, system_table) };
-    loader.load()
-}
-
-struct Loader<'a, 'b, 'c> {
-    file: RegularFile,
-    memory: &'a mut Memory<'b>,
-    system_table: &'c SystemTable<Boot>,
-}
-
-impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
-    /// Creates a new loader.
-    ///
-    /// # Safety
-    ///
-    /// The file position must be set to the start of the file.
-    unsafe fn new(
-        file: RegularFile,
-        memory: &'a mut Memory<'b>,
-        system_table: &'c SystemTable<Boot>,
-    ) -> Self {
-        Self {
+        Loader {
             file,
-            memory,
-            system_table,
+            context: self,
         }
+        .load()
     }
+}
 
+struct Loader<'a> {
+    file: RegularFile,
+    context: &'a mut BootContext,
+}
+
+impl<'a> Loader<'a> {
     fn load(mut self) -> (VirtualAddress, &'static mut [ElfSection]) {
         let mut buffer = [0; core::mem::size_of::<Header>()];
         self.file.read(&mut buffer).unwrap();
@@ -110,11 +90,9 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
     fn elf_sections(&mut self, header: &Header) -> &'static mut [ElfSection] {
         let program_header_count = header.e_shnum;
 
-        let sections = allocate_slice(
-            program_header_count as usize,
-            MemoryType::LOADER_DATA,
-            self.system_table,
-        );
+        let sections = self
+            .context
+            .allocate_slice(program_header_count as usize, MemoryType::LOADER_DATA);
         let mut buffer = [0; SIZEOF_SHDR];
 
         let shstrtab_header = header.e_shoff + (header.e_shstrndx as u64 * SIZEOF_SHDR as u64);
@@ -148,33 +126,16 @@ impl<'a, 'b, 'c> Loader<'a, 'b, 'c> {
 
     fn handle_load_segment(&mut self, segment: ProgramHeader) {
         log::info!("loading segment: {segment:?}");
-        let mut flags = PteFlags::PRESENT;
-
-        // If the first bit isn't set
-        if segment.p_flags & 0x1 == 0 {
-            flags |= PteFlags::NO_EXECUTE;
-        }
-
-        // If the second bit is set
-        if segment.p_flags & 0x2 != 0 {
-            flags |= PteFlags::WRITABLE;
-        }
-
-        self.memory.map_segment(segment, flags);
-
-        let slice = unsafe {
-            core::slice::from_raw_parts_mut(segment.p_paddr as *mut u8, segment.p_filesz as usize)
-        };
+        let slice = unsafe { self.context.map_segment(segment) };
 
         self.file.set_position(segment.p_offset).unwrap();
-        // FIXME: We don't check that the physical address is safe to write to. But, if
-        // it isn't, there isn't much we can do because Theseus requires kernel segment
-        // load addresses to be respected.
-        self.file.read(slice).unwrap();
+        self.file
+            .read(&mut slice[..segment.p_filesz as usize])
+            .unwrap();
 
-        let bss_start = (segment.p_paddr + segment.p_filesz) as *mut u8;
-        let bss_size = (segment.p_memsz - segment.p_filesz) as usize;
+        // let bss_start = (segment.p_paddr + segment.p_filesz) as *mut u8;
+        // let bss_size = (segment.p_memsz - segment.p_filesz) as usize;
 
-        unsafe { core::ptr::write_bytes(bss_start, 0, bss_size) }
+        // unsafe { core::ptr::write_bytes(bss_start, 0, bss_size) }
     }
 }
