@@ -25,14 +25,14 @@ pub(crate) fn set_up_arch_specific_mappings(_context: &mut RuntimeContext) {
 }
 
 bitflags::bitflags! {
-    pub struct PteFlags: u64 {
+    pub(crate) struct PteFlags: u64 {
         const PRESENT = 1;
         const WRITABLE = 2;
         const NO_EXECUTE = 3;
     }
 }
 
-pub struct PageAllocator;
+pub(crate) struct PageAllocator;
 
 impl PageAllocator {
     pub(crate) fn new() -> Self {
@@ -48,7 +48,7 @@ impl PageAllocator {
     }
 }
 
-pub struct Mapper;
+pub(crate) struct Mapper;
 
 impl Mapper {
     pub(crate) fn new<T>(_frame_allocator: &mut T) -> Self

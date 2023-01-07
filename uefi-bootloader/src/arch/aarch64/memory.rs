@@ -1,4 +1,7 @@
-use crate::memory::{Frame, FrameAllocator, Memory, Page, PhysicalAddress, VirtualAddress};
+use crate::{
+    memory::{Frame, FrameAllocator, Page, VirtualAddress},
+    RuntimeContext,
+};
 use bit_field::BitField;
 use goblin::elf64::program_header::ProgramHeader;
 
@@ -8,7 +11,7 @@ use goblin::elf64::program_header::ProgramHeader;
 /// and the next 8 bits are unused.
 /// Our ASID is zero, so a "canonical" VA has
 /// the 16 most significant bits cleared.
-pub fn is_canonical_virtual_address(virt_addr: usize) -> bool {
+pub(crate) fn is_canonical_virtual_address(virt_addr: usize) -> bool {
     virt_addr.get_bits(48..64) == 0
 }
 
@@ -18,30 +21,28 @@ pub fn is_canonical_virtual_address(virt_addr: usize) -> bool {
 /// and the next 8 bits are unused.
 /// Our ASID is zero, so a "canonical" VA has
 /// the 16 most significant bits cleared.
-pub const fn canonicalize_virtual_address(virt_addr: usize) -> usize {
+pub(crate) const fn canonicalize_virtual_address(virt_addr: usize) -> usize {
     virt_addr & 0x0000_FFFF_FFFF_FFFF
 }
 
 /// On aarch64, we configure the MMU to use 48-bit
 /// physical addresses; "canonical" physical addresses
 /// have the 16 most significant bits cleared.
-pub fn is_canonical_physical_address(phys_addr: usize) -> bool {
+pub(crate) fn is_canonical_physical_address(phys_addr: usize) -> bool {
     phys_addr.get_bits(48..64) == 0
 }
 
 /// On aarch64, we configure the MMU to use 48-bit
 /// physical addresses; "canonical" physical addresses
 /// have the 16 most significant bits cleared.
-pub const fn canonicalize_physical_address(phys_addr: usize) -> usize {
+pub(crate) const fn canonicalize_physical_address(phys_addr: usize) -> usize {
     phys_addr & 0x0000_FFFF_FFFF_FFFF
 }
 
-pub fn set_up_arch_specific_mappings(_memory: &mut Memory) {
-    unimplemented!();
-}
+pub(crate) fn set_up_arch_specific_mappings(_: &mut RuntimeContext) {}
 
 bitflags::bitflags! {
-    pub struct PteFlags: u64 {
+    pub(crate) struct PteFlags: u64 {
         const PRESENT = 1;
         const WRITABLE = !(1 << 7);
         const NO_EXECUTE = (1 << 53) | (1 << 54);
@@ -54,12 +55,12 @@ impl Page {
     }
 }
 
-pub struct PageAllocator {
+pub(crate) struct PageAllocator {
     level_0_entries: [bool; 512],
 }
 
 impl PageAllocator {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut page_allocator = Self {
             level_0_entries: [false; 512],
         };
@@ -90,7 +91,7 @@ impl PageAllocator {
         idx
     }
 
-    pub fn get_free_address(&mut self, len: usize) -> VirtualAddress {
+    pub(crate) fn get_free_address(&mut self, len: usize) -> VirtualAddress {
         const LEVEL_0_SIZE: usize = 4096 * 512 * 512 * 512;
         let num_level_0_entries = (len + (LEVEL_0_SIZE - 1)) / LEVEL_0_SIZE;
 
@@ -101,7 +102,7 @@ impl PageAllocator {
         VirtualAddress::new(address).unwrap()
     }
 
-    pub fn mark_segment_as_used(&mut self, segment: ProgramHeader) {
+    pub(crate) fn mark_segment_as_used(&mut self, segment: ProgramHeader) {
         let start = VirtualAddress::new_canonical(segment.p_vaddr as usize);
         let end_inclusive = (start + segment.p_memsz as usize) - 1;
 
@@ -114,24 +115,36 @@ impl PageAllocator {
     }
 }
 
-pub struct Mapper;
+pub(crate) struct Mapper;
 
 impl Mapper {
-    pub fn new(_frame_allocator: &mut FrameAllocator) -> Self {
-        Self
-    }
-
-    pub fn address(&mut self) -> PhysicalAddress {
+    pub(crate) fn new<T>(_frame_allocator: &mut T) -> Self
+    where
+        T: FrameAllocator,
+    {
         unimplemented!();
     }
 
-    pub fn map(
+    pub(crate) fn current<T>(_frame_allocator: &mut T) -> Self
+    where
+        T: FrameAllocator,
+    {
+        unimplemented!();
+    }
+
+    pub(crate) fn frame(&mut self) -> Frame {
+        unimplemented!();
+    }
+
+    pub(crate) fn map<T>(
         &mut self,
         _page: Page,
         _frame: Frame,
         _flags: PteFlags,
-        _frame_allocator: &mut FrameAllocator,
-    ) {
+        _frame_allocator: &mut T,
+    ) where
+        T: FrameAllocator,
+    {
         unimplemented!()
     }
 }

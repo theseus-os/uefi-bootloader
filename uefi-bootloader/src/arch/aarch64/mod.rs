@@ -1,12 +1,12 @@
-use crate::Context;
+use crate::KernelContext;
 use core::arch::asm;
 use cortex_a::{asm::barrier, registers::*};
 use tock_registers::interfaces::{ReadWriteable, Writeable};
 
 pub mod memory;
 
-pub(crate) unsafe fn context_switch(context: Context) -> ! {
-    set_as_active_page_table_root(context.page_table.start_address());
+pub(crate) unsafe fn context_switch(context: KernelContext) -> ! {
+    set_as_active_page_table_root(context.page_table_frame.start_address());
     configure_translation_registers();
     enable_mmu();
     unsafe {
