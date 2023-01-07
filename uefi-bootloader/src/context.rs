@@ -128,16 +128,16 @@ impl BootContext {
             Frame::containing_address(physical_end_inclusive),
         );
 
-        let mut flags = PteFlags::PRESENT;
+        let mut flags = PteFlags::new().present(true);
 
         // If the first bit isn't set
         if segment.p_flags & 0x1 == 0 {
-            flags |= PteFlags::NO_EXECUTE;
+            flags = flags.no_execute(true);
         }
 
         // If the second bit is set
         if segment.p_flags & 0x2 != 0 {
-            flags |= PteFlags::WRITABLE;
+            flags = flags.writable(true);
         }
 
         for (page, frame) in pages.zip(frames) {

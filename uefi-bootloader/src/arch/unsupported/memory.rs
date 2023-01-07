@@ -24,11 +24,28 @@ pub(crate) fn set_up_arch_specific_mappings(_context: &mut RuntimeContext) {
     unimplemented!();
 }
 
-bitflags::bitflags! {
-    pub(crate) struct PteFlags: u64 {
-        const PRESENT = 1;
-        const WRITABLE = 2;
-        const NO_EXECUTE = 3;
+#[derive(Clone, Copy)]
+pub(crate) struct PteFlags;
+
+impl PteFlags {
+    pub(crate) fn new() -> Self {
+        Self
+    }
+
+    pub(crate) fn present(self, _enable: bool) -> Self {
+        unimplemented!();
+    }
+
+    fn page_descriptor(self, _enable: bool) -> Self {
+        unimplemented!();
+    }
+
+    pub(crate) fn writable(self, _enable: bool) -> Self {
+        unimplemented!();
+    }
+
+    pub(crate) fn no_execute(self, _enable: bool) -> Self {
+        unimplemented!();
     }
 }
 
@@ -55,7 +72,7 @@ impl Mapper {
     where
         T: FrameAllocator,
     {
-        unimplemented!();
+        Self
     }
 
     pub(crate) fn current<T>(_frame_allocator: &mut T) -> Self

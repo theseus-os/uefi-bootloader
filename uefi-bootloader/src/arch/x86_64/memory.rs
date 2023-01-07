@@ -9,8 +9,6 @@ use x86_64::{
     structures::paging::{self, OffsetPageTable, PageTable, PageTableIndex},
 };
 
-pub use x86_64::structures::paging::PageTableFlags as PteFlags;
-
 pub fn is_canonical_virtual_address(virt_addr: usize) -> bool {
     matches!(virt_addr.get_bits(47..64), 0 | 0b1_1111_1111_1111_1111)
 }
@@ -42,7 +40,55 @@ pub(crate) fn set_up_arch_specific_mappings(context: &mut RuntimeContext) {
     #[allow(clippy::inconsistent_digit_grouping)]
     let p4_index = x86_64::VirtAddr::new(0o177777_776_000_000_000_0000).p4_index();
     let entry = &mut context.mapper.inner.level_4_table()[p4_index];
-    entry.set_frame(p4_frame, PteFlags::PRESENT | PteFlags::WRITABLE);
+    entry.set_frame(
+        p4_frame,
+        paging::PageTableFlags::PRESENT | paging::PageTableFlags::WRITABLE,
+    );
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PteFlags(u64);
+
+impl PteFlags {
+    pub(crate) fn new() -> Self {
+        Self(0)
+    }
+
+    pub(crate) fn present(self, enable: bool) -> Self {
+        const BITS: u64 = paging::PageTableFlags::PRESENT.bits();
+
+        if enable {
+            Self(self.0 | BITS)
+        } else {
+            Self(self.0 & !(BITS))
+        }
+    }
+
+    pub(crate) fn writable(self, enable: bool) -> Self {
+        const BITS: u64 = paging::PageTableFlags::WRITABLE.bits();
+
+        if enable {
+            Self(self.0 | BITS)
+        } else {
+            Self(self.0 & !(BITS))
+        }
+    }
+
+    pub(crate) fn no_execute(self, enable: bool) -> Self {
+        const BITS: u64 = paging::PageTableFlags::NO_EXECUTE.bits();
+
+        if enable {
+            Self(self.0 | BITS)
+        } else {
+            Self(self.0 & !(BITS))
+        }
+    }
+}
+
+impl From<PteFlags> for paging::PageTableFlags {
+    fn from(flags: PteFlags) -> Self {
+        paging::PageTableFlags::from_bits_truncate(flags.0)
+    }
 }
 
 impl From<x86_64::VirtAddr> for VirtualAddress {
@@ -226,7 +272,7 @@ impl Mapper {
                 &mut self.inner,
                 page.into(),
                 frame.into(),
-                flags,
+                flags.into(),
                 &mut FrameAllocatorWrapper {
                     inner: frame_allocator,
                 },

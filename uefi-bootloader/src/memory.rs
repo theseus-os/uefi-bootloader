@@ -22,7 +22,7 @@ use zerocopy::FromBytes;
 
 pub(crate) use imp::{set_up_arch_specific_mappings, Mapper, PageAllocator, PteFlags};
 
-const PAGE_SIZE: usize = 4096;
+pub(crate) const PAGE_SIZE: usize = 4096;
 const MAX_PAGE_NUMBER: usize = usize::MAX / PAGE_SIZE;
 
 pub(crate) const KERNEL_MEMORY: MemoryType = MemoryType::custom(0xffffffff);

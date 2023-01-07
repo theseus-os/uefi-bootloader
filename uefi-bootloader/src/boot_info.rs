@@ -38,23 +38,16 @@ impl RuntimeContext {
             )
         };
 
+        // TODO: UB?
         let mut bootloader_page_tables = Mapper::current(&mut self.frame_allocator);
+        let flags = PteFlags::new().present(true).writable(true);
 
         for page in pages {
             let frame = self.frame_allocator.allocate_frame().unwrap();
-            self.mapper.map(
-                page,
-                frame,
-                PteFlags::PRESENT | PteFlags::WRITABLE,
-                &mut self.frame_allocator,
-            );
+            self.mapper
+                .map(page, frame, flags, &mut self.frame_allocator);
 
-            bootloader_page_tables.map(
-                page,
-                frame,
-                PteFlags::PRESENT | PteFlags::WRITABLE,
-                &mut self.frame_allocator,
-            );
+            bootloader_page_tables.map(page, frame, flags, &mut self.frame_allocator);
         }
 
         let memory_map_regions_address = boot_info_address + memory_regions_offset;

@@ -1,9 +1,15 @@
 use crate::{
-    memory::{Frame, FrameAllocator, Page, VirtualAddress},
+    memory::{Frame, FrameAllocator, Page, PhysicalAddress, VirtualAddress, PAGE_SIZE},
     RuntimeContext,
 };
 use bit_field::BitField;
+use core::{
+    ops::{Index, IndexMut},
+    ptr,
+};
+use cortex_a::registers::TTBR0_EL1;
 use goblin::elf64::program_header::ProgramHeader;
+use tock_registers::interfaces::Readable;
 
 /// On aarch64, VAs are composed of an ASID
 /// which is 8 or 16 bits long depending
@@ -41,17 +47,70 @@ pub(crate) const fn canonicalize_physical_address(phys_addr: usize) -> usize {
 
 pub(crate) fn set_up_arch_specific_mappings(_: &mut RuntimeContext) {}
 
-bitflags::bitflags! {
-    pub(crate) struct PteFlags: u64 {
-        const PRESENT = 1;
-        const WRITABLE = !(1 << 7);
-        const NO_EXECUTE = (1 << 53) | (1 << 54);
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PteFlags(u64);
+
+impl PteFlags {
+    pub(crate) fn new() -> Self {
+        Self(0)
+    }
+
+    pub(crate) fn present(self, enable: bool) -> Self {
+        const BITS: u64 = 1;
+
+        if enable {
+            Self(self.0 | BITS)
+        } else {
+            Self(self.0 & !(BITS))
+        }
+    }
+
+    fn page_descriptor(self, enable: bool) -> Self {
+        const BITS: u64 = 1 << 1;
+
+        if enable {
+            Self(self.0 | BITS)
+        } else {
+            Self(self.0 & !(BITS))
+        }
+    }
+
+    pub(crate) fn writable(self, enable: bool) -> Self {
+        const BITS: u64 = 1 << 7;
+
+        if enable {
+            Self(self.0 & !(BITS))
+        } else {
+            Self(self.0 | BITS)
+        }
+    }
+
+    pub(crate) fn no_execute(self, enable: bool) -> Self {
+        const BITS: u64 = (1 << 53) | (1 << 54);
+
+        if enable {
+            Self(self.0 | BITS)
+        } else {
+            Self(self.0 & !(BITS))
+        }
     }
 }
 
 impl Page {
     const fn p0_index(&self) -> usize {
-        (self.number >> 27) & 0x1ff
+        (self.number >> 39) & 0x1ff
+    }
+
+    const fn p1_index(&self) -> usize {
+        (self.number >> 30) & 0x1ff
+    }
+
+    const fn p2_index(&self) -> usize {
+        (self.number >> 21) & 0x1ff
+    }
+
+    const fn p3_index(&self) -> usize {
+        (self.number >> 12) & 0x1ff
     }
 }
 
@@ -115,36 +174,137 @@ impl PageAllocator {
     }
 }
 
-pub(crate) struct Mapper;
+pub(crate) struct Mapper {
+    level_zero_page_table: &'static mut PageTable,
+}
 
 impl Mapper {
-    pub(crate) fn new<T>(_frame_allocator: &mut T) -> Self
+    pub(crate) fn new<T>(frame_allocator: &mut T) -> Self
     where
         T: FrameAllocator,
     {
-        unimplemented!();
+        let address = frame_allocator
+            .allocate_frame()
+            .unwrap()
+            .start_address()
+            .value() as *mut PageTable;
+        unsafe { ptr::write_bytes(address, 0, 1) };
+        Self {
+            level_zero_page_table: unsafe { &mut *address },
+        }
     }
 
     pub(crate) fn current<T>(_frame_allocator: &mut T) -> Self
     where
         T: FrameAllocator,
     {
-        unimplemented!();
+        let address = PhysicalAddress::new_canonical(TTBR0_EL1.read(TTBR0_EL1::BADDR) as usize)
+            .value() as *mut PageTable;
+        unsafe { ptr::write_bytes(address, 0, 1) };
+        Self {
+            level_zero_page_table: unsafe { &mut *address },
+        }
     }
 
     pub(crate) fn frame(&mut self) -> Frame {
-        unimplemented!();
+        Frame::containing_address(PhysicalAddress::new_canonical(
+            self.level_zero_page_table as *const _ as usize,
+        ))
     }
 
     pub(crate) fn map<T>(
         &mut self,
-        _page: Page,
-        _frame: Frame,
-        _flags: PteFlags,
-        _frame_allocator: &mut T,
+        page: Page,
+        frame: Frame,
+        flags: PteFlags,
+        frame_allocator: &mut T,
     ) where
         T: FrameAllocator,
     {
-        unimplemented!()
+        let page_table_flags = PteFlags::new()
+            .present(true)
+            .page_descriptor(true)
+            .writable(true)
+            .no_execute(true);
+
+        let level_1 = unsafe {
+            self.level_zero_page_table.create_next_table(
+                page.p0_index(),
+                page_table_flags,
+                frame_allocator,
+            )
+        };
+        let level_2 = unsafe {
+            level_1.create_next_table(page.p1_index(), page_table_flags, frame_allocator)
+        };
+        let level_3 = unsafe {
+            level_2.create_next_table(page.p2_index(), page_table_flags, frame_allocator)
+        };
+
+        level_3[page.p3_index()].set(frame, flags);
+    }
+}
+
+// NOTE: The below only works with an identity-mapping.
+
+#[derive(Debug)]
+#[repr(C, align(4096))]
+struct PageTable {
+    entries: [PageTableEntry; 512],
+}
+
+impl PageTable {
+    unsafe fn create_next_table<'a, 'b, T>(
+        &mut self,
+        index: usize,
+        page_table_flags: PteFlags,
+        frame_allocator: &'b mut T,
+    ) -> &'a mut PageTable
+    where
+        T: FrameAllocator,
+    {
+        let entry = &mut self[index];
+        if entry.is_unused() {
+            let frame = frame_allocator.allocate_frame().unwrap();
+            entry.set(frame, page_table_flags);
+        }
+        unsafe { entry.as_page_table() }
+    }
+}
+
+impl Index<usize> for PageTable {
+    type Output = PageTableEntry;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.entries[index]
+    }
+}
+
+impl IndexMut<usize> for PageTable {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.entries[index]
+    }
+}
+
+#[derive(Clone, Debug)]
+#[repr(transparent)]
+struct PageTableEntry(u64);
+
+impl PageTableEntry {
+    fn is_unused(&self) -> bool {
+        self.0 == 0
+    }
+
+    fn output_address(&self) -> PhysicalAddress {
+        PhysicalAddress::new_canonical(self.0 as usize & (!(PAGE_SIZE - 1) & !(0xffff << 48)))
+    }
+
+    fn set(&mut self, frame: Frame, flags: PteFlags) {
+        self.0 = frame.start_address().value() as u64 | flags.0;
+    }
+
+    #[allow(clippy::mut_from_ref)]
+    unsafe fn as_page_table(&self) -> &'static mut PageTable {
+        unsafe { &mut *(self.0 as *mut _) }
     }
 }
