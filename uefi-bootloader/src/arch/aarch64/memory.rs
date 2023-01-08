@@ -7,7 +7,7 @@ use core::{
     ops::{Index, IndexMut},
     ptr,
 };
-use cortex_a::registers::TTBR0_EL1;
+use cortex_a::{asm::barrier, registers::TTBR0_EL1};
 use goblin::elf64::program_header::ProgramHeader;
 use tock_registers::interfaces::Readable;
 
@@ -98,19 +98,19 @@ impl PteFlags {
 
 impl Page {
     const fn p0_index(&self) -> usize {
-        (self.number >> 39) & 0x1ff
+        (self.number >> 27) & 0x1ff
     }
 
     const fn p1_index(&self) -> usize {
-        (self.number >> 30) & 0x1ff
+        (self.number >> 18) & 0x1ff
     }
 
     const fn p2_index(&self) -> usize {
-        (self.number >> 21) & 0x1ff
+        (self.number >> 9) & 0x1ff
     }
 
     const fn p3_index(&self) -> usize {
-        (self.number >> 12) & 0x1ff
+        self.number & 0x1ff
     }
 }
 
@@ -198,9 +198,8 @@ impl Mapper {
     where
         T: FrameAllocator,
     {
-        let address = PhysicalAddress::new_canonical(TTBR0_EL1.read(TTBR0_EL1::BADDR) as usize)
-            .value() as *mut PageTable;
-        unsafe { ptr::write_bytes(address, 0, 1) };
+        let address = PhysicalAddress::new_canonical(TTBR0_EL1.get_baddr() as usize).value()
+            as *mut PageTable;
         Self {
             level_zero_page_table: unsafe { &mut *address },
         }
@@ -241,7 +240,9 @@ impl Mapper {
             level_2.create_next_table(page.p2_index(), page_table_flags, frame_allocator)
         };
 
-        level_3[page.p3_index()].set(frame, flags);
+        level_3[page.p3_index()].set(frame, flags.page_descriptor(true));
+
+        barrier::isb(barrier::SY);
     }
 }
 
@@ -266,6 +267,7 @@ impl PageTable {
         let entry = &mut self[index];
         if entry.is_unused() {
             let frame = frame_allocator.allocate_frame().unwrap();
+            unsafe { ptr::write_bytes(frame.start_address().value() as *mut PageTable, 0, 1) };
             entry.set(frame, page_table_flags);
         }
         unsafe { entry.as_page_table() }
@@ -300,11 +302,12 @@ impl PageTableEntry {
     }
 
     fn set(&mut self, frame: Frame, flags: PteFlags) {
-        self.0 = frame.start_address().value() as u64 | flags.0;
+        // self.0 = frame.start_address().value() as u64 | flags.0;
+        self.0 = frame.start_address().value() as u64 | 0x70f;
     }
 
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_page_table(&self) -> &'static mut PageTable {
-        unsafe { &mut *(self.0 as *mut _) }
+        unsafe { &mut *((self.0.get_bits(12..52) << 12) as *mut _) }
     }
 }

@@ -1,3 +1,5 @@
+// FIXME: This doesn't work.
+
 use crate::KernelContext;
 use core::arch::asm;
 use cortex_a::{asm::barrier, registers::*};
@@ -5,18 +7,26 @@ use tock_registers::interfaces::{ReadWriteable, Writeable};
 
 pub mod memory;
 
-pub(crate) unsafe fn context_switch(context: KernelContext) -> ! {
-    set_as_active_page_table_root(context.page_table_frame.start_address());
-    configure_translation_registers();
+pub(crate) fn pre_context_switch_actions() {
     enable_mmu();
+    configure_translation_registers();
+}
+
+pub(crate) unsafe fn context_switch(context: KernelContext) -> ! {
     unsafe {
-        asm!(
-            "br {}",
-            in(reg) context.entry_point.value(),
-            in("x0") context.boot_info,
+        // TODO: Set stack pointer, and jump to entry point.
+        core::arch::asm!(
+            "msr ttbr0_el1, {}",
+            "tlbi alle1",
+            "dsb ish",
+            "isb",
+            "2:",
+            "mov x2, 0xdead",
+            "b 2b",
+            in(reg) (context.page_table_frame.start_address().value() as u64),
             options(noreturn),
-        );
-    }
+        )
+    };
 }
 
 pub(crate) fn halt() -> ! {

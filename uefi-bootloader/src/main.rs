@@ -17,7 +17,7 @@ mod memory;
 mod modules;
 mod util;
 
-use crate::arch::context_switch;
+use crate::arch::{context_switch, pre_context_switch_actions};
 use crate::memory::{Frame, VirtualAddress};
 use core::{fmt::Write, ptr::NonNull};
 use log::{error, info};
@@ -75,6 +75,9 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let boot_info = context.create_boot_info(frame_buffer, rsdp_address, modules, elf_sections);
     info!("created boot info: {boot_info:x?}");
+
+    info!("running pre-context switch actions");
+    pre_context_switch_actions();
 
     let context = KernelContext {
         page_table_frame,

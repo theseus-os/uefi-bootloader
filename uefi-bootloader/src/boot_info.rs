@@ -46,7 +46,6 @@ impl RuntimeContext {
             let frame = self.frame_allocator.allocate_frame().unwrap();
             self.mapper
                 .map(page, frame, flags, &mut self.frame_allocator);
-
             bootloader_page_tables.map(page, frame, flags, &mut self.frame_allocator);
         }
 

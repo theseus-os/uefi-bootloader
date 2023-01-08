@@ -179,10 +179,6 @@ impl BootContext {
             .exit_boot_services(self.image_handle, memory_map_storage)
             .unwrap();
 
-        for x in memory_map.clone().into_iter().take(8) {
-            log::error!("{x:x?}");
-        }
-
         RuntimeContext {
             page_allocator: self.page_allocator,
             frame_allocator: LegacyFrameAllocator::new(memory_map),

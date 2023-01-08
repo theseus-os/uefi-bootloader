@@ -5,6 +5,7 @@ use goblin::elf64::{
     program_header::{ProgramHeader, SIZEOF_PHDR},
     section_header::{SectionHeader, SIZEOF_SHDR},
 };
+use log::info;
 use uefi::{
     prelude::cstr16,
     proto::media::file::{File, FileAttribute, FileMode, FileType, RegularFile},
@@ -42,7 +43,7 @@ struct Loader<'a> {
     context: &'a mut BootContext,
 }
 
-impl<'a> Loader<'a> {
+impl Loader<'_> {
     fn load(mut self) -> (VirtualAddress, &'static mut [ElfSection]) {
         let mut buffer = [0; core::mem::size_of::<Header>()];
         self.file.read(&mut buffer).unwrap();
@@ -125,8 +126,9 @@ impl<'a> Loader<'a> {
     }
 
     fn handle_load_segment(&mut self, segment: ProgramHeader) {
-        log::info!("loading segment: {segment:?}");
+        info!("loading segment: {segment:?}");
         let slice = unsafe { self.context.map_segment(segment) };
+        info!("at paddr: {:x?}", slice.as_ptr());
 
         self.file.set_position(segment.p_offset).unwrap();
         self.file

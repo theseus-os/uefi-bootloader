@@ -3,6 +3,8 @@ use core::arch::asm;
 
 pub mod memory;
 
+pub(crate) fn pre_context_switch_actions() {}
+
 pub(crate) unsafe fn context_switch(context: KernelContext) -> ! {
     unsafe {
         asm!(
