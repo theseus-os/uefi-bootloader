@@ -39,6 +39,7 @@ static mut SYSTEM_TABLE: Option<NonNull<SystemTable<Boot>>> = None;
 #[entry]
 fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let system_table_pointer = NonNull::from(&mut system_table);
+    // SAFETY: We are the sole thread.
     unsafe { SYSTEM_TABLE = Some(system_table_pointer) };
 
     system_table
@@ -52,6 +53,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         info!("using framebuffer at {:#x}", frame_buffer.start);
     }
 
+    // SAFETY: We are the sole thread.
     unsafe { SYSTEM_TABLE = None };
 
     let rsdp_address = get_rsdp_address(&system_table);
@@ -87,17 +89,18 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     };
 
     info!("about to switch to kernel: {context:x?}");
+    // SAFETY: Everything is correctly mapped.
     unsafe { context_switch(context) };
 }
 
 fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
     let handle = system_table
         .boot_services()
-        .get_handle_for_protocol::<GraphicsOutput>()
+        .get_handle_for_protocol::<GraphicsOutput<'_>>()
         .ok()?;
     let mut gop = system_table
         .boot_services()
-        .open_protocol_exclusive::<GraphicsOutput>(handle)
+        .open_protocol_exclusive::<GraphicsOutput<'_>>(handle)
         .ok()?;
 
     let mode_info = gop.current_mode_info();
@@ -124,6 +127,7 @@ fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
 }
 
 fn init_logger(frame_buffer: &FrameBuffer) {
+    // SAFETY: The hardware initialised the frame buffer.
     let slice = unsafe {
         core::slice::from_raw_parts_mut(frame_buffer.start as *mut _, frame_buffer.info.size)
     };
@@ -143,7 +147,7 @@ fn get_rsdp_address(system_table: &SystemTable<Boot>) -> Option<usize> {
 }
 
 /// The context necessary to switch to the kernel.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 struct KernelContext {
     page_table_frame: Frame,
     stack_top: VirtualAddress,
@@ -152,13 +156,16 @@ struct KernelContext {
 }
 
 #[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
+    // SAFETY: We are the sole thread.
     if let Some(mut system_table_pointer) = unsafe { SYSTEM_TABLE } {
+        // SAFETY: We are the sole thread.
         let system_table = unsafe { system_table_pointer.as_mut() };
         let _ = writeln!(system_table.stdout(), "{info}");
     }
 
     if let Some(logger) = logger::LOGGER.get() {
+        // SAFETY: We are the sole thread.
         unsafe { logger.force_unlock() };
     }
     error!("{info}");

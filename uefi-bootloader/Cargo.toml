@@ -9,6 +9,7 @@ cfg-if = "*"
 derive_more = "*"
 log = "*"
 paste = "*"
+plain = "*"
 spin = "*"
 uefi = { git = "https://github.com/rust-osdev/uefi-rs", default-features = false }
 uefi-bootloader-api = { path = "../uefi-bootloader-api" }

@@ -21,7 +21,10 @@ impl RuntimeContext {
 
         // The +1 means the guard page isn't mapped to a frame.
         for page in (stack_start + 1)..=stack_end {
-            let frame = self.frame_allocator.allocate_frame().unwrap();
+            let frame = self
+                .frame_allocator
+                .allocate_frame()
+                .expect("failed to allocate stack frame");
             self.mapper.map(
                 page,
                 frame,

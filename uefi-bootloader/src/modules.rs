@@ -1,4 +1,4 @@
-use crate::{util::calculate_pages, BootContext};
+use crate::{memory::PAGE_SIZE, util::calculate_pages, BootContext};
 use core::mem::MaybeUninit;
 use uefi::{
     prelude::cstr16,
@@ -7,21 +7,29 @@ use uefi::{
 };
 use uefi_bootloader_api::Module;
 
+const MODULES_MEMORY: MemoryType = MemoryType::custom(0x8000_0000);
+
 impl BootContext {
     pub(crate) fn load_modules(&self) -> &'static mut [Module] {
-        let mut root = self.open_file_system_root().unwrap();
+        let mut root = self
+            .open_file_system_root()
+            .expect("failed to open file system root");
 
         let mut dir = root
             .open(cstr16!("modules"), FileMode::Read, FileAttribute::empty())
-            .unwrap()
+            // TODO: Don't fail if modules don't exist.
+            .expect("failed to open modules directory")
             .into_directory()
-            .unwrap();
+            .expect("modules directory was closed or deleted");
 
         let mut num_modules = 0;
         let mut num_pages = 0;
         let mut buf = [0; 500];
 
-        while let Some(info) = dir.read_entry(&mut buf).unwrap() {
+        while let Some(info) = dir
+            .read_entry(&mut buf)
+            .expect("failed to read modules directory entry")
+        {
             if !info.attribute().contains(FileAttribute::DIRECTORY) {
                 num_modules += 1;
                 // Theseus modules must not share pages i.e. the next module starts on a new
@@ -30,27 +38,33 @@ impl BootContext {
             }
         }
 
-        // TODO: Explain why this can be loader data.
+        // This slice is copied into another slice in the bootloader, so this slice can
+        // be overwritten by the kernel.
         let modules = self.allocate_slice(num_modules, MemoryType::LOADER_DATA);
-        let raw_bytes = self.allocate_byte_slice(num_pages * 4096, MemoryType::custom(0x80000000));
+        let raw_bytes = self.allocate_byte_slice(num_pages * PAGE_SIZE, MODULES_MEMORY);
 
-        dir.reset_entry_readout().unwrap();
+        dir.reset_entry_readout()
+            .expect("failed to reset modules directory entry readout");
 
         let mut idx = 0;
         let mut num_pages = 0;
 
-        while let Some(info) = dir.read_entry(&mut buf).unwrap() {
+        while let Some(info) = dir
+            .read_entry(&mut buf)
+            .expect("failed to read modules directory entry")
+        {
             if !info.attribute().contains(FileAttribute::DIRECTORY) {
                 let name = info.file_name();
 
                 let len = info.file_size() as usize;
                 let mut file = dir
                     .open(info.file_name(), FileMode::Read, FileAttribute::empty())
-                    .unwrap()
+                    .expect("failed to open module")
                     .into_regular_file()
-                    .unwrap();
+                    .expect("module file was closed or deleted");
 
-                file.read(&mut raw_bytes[(num_pages * 4096)..]).unwrap();
+                file.read(&mut raw_bytes[(num_pages * 4096)..])
+                    .expect("failed to read module");
 
                 let mut name_buf = [0; 64];
                 let mut name_idx = 0;
@@ -72,6 +86,7 @@ impl BootContext {
         }
 
         assert_eq!(idx, modules.len());
+        // SAFETY: We just initialised the slice and checked that it's the same length.
         unsafe { MaybeUninit::slice_assume_init_mut(modules) }
     }
 }

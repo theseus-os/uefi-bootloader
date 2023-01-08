@@ -1,3 +1,5 @@
+//! Types to interact with the `uefi-bootloader` crate.
+
 #![feature(pointer_byte_offsets)]
 #![no_std]
 
@@ -53,12 +55,14 @@ impl ops::Deref for MemoryRegions {
     type Target = [MemoryRegion];
 
     fn deref(&self) -> &Self::Target {
+        // SAFETY: Pointer and length were calculated from a valid slice.
         unsafe { slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 
 impl ops::DerefMut for MemoryRegions {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: Pointer and length were calculated from a valid slice.
         unsafe { slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -74,6 +78,7 @@ impl From<&'static mut [MemoryRegion]> for MemoryRegions {
 
 impl From<MemoryRegions> for &'static mut [MemoryRegion] {
     fn from(regions: MemoryRegions) -> &'static mut [MemoryRegion] {
+        // SAFETY: Pointer and length were calculated from a valid slice.
         unsafe { slice::from_raw_parts_mut(regions.ptr, regions.len) }
     }
 }
@@ -94,6 +99,7 @@ pub struct MemoryRegion {
 
 impl MemoryRegion {
     /// Creates a new empty memory region (with length 0).
+    #[must_use]
     pub const fn empty() -> Self {
         MemoryRegion {
             start: 0,
@@ -134,12 +140,14 @@ impl ops::Deref for Modules {
     type Target = [Module];
 
     fn deref(&self) -> &Self::Target {
+        // SAFETY: Pointer and length were calculated from a valid slice.
         unsafe { slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 
 impl ops::DerefMut for Modules {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: Pointer and length were calculated from a valid slice.
         unsafe { slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -155,6 +163,7 @@ impl From<&'static mut [Module]> for Modules {
 
 impl From<Modules> for &'static mut [Module] {
     fn from(modules: Modules) -> Self {
+        // SAFETY: Pointer and length were calculated from a valid slice.
         unsafe { slice::from_raw_parts_mut(modules.ptr, modules.len) }
     }
 }
@@ -176,6 +185,7 @@ pub struct Module {
 
 impl Module {
     /// The name of the module.
+    #[must_use]
     pub fn name(&self) -> &str {
         let end = self
             .name
@@ -199,12 +209,14 @@ impl ops::Deref for ElfSections {
     type Target = [ElfSection];
 
     fn deref(&self) -> &Self::Target {
+        // SAFETY: Pointer and length were calculated from a valid slice.
         unsafe { slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 
 impl ops::DerefMut for ElfSections {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: Pointer and length were calculated from a valid slice.
         unsafe { slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
@@ -220,6 +232,7 @@ impl From<&'static mut [ElfSection]> for ElfSections {
 
 impl From<ElfSections> for &'static mut [ElfSection] {
     fn from(elf_sections: ElfSections) -> Self {
+        // SAFETY: Pointer and length were calculated from a valid slice.
         unsafe { slice::from_raw_parts_mut(elf_sections.ptr, elf_sections.len) }
     }
 }
@@ -241,6 +254,7 @@ pub struct ElfSection {
 
 impl ElfSection {
     /// The name of the section.
+    #[must_use]
     pub fn name(&self) -> &str {
         let end = self
             .name

@@ -76,9 +76,12 @@ impl BootContext {
         let pointer = self
             .system_table
             .boot_services()
+            // TODO: Allocate pool?
             .allocate_pages(allocate_type, memory_type, num_pages)
-            .unwrap() as *mut _;
+            .expect("failed to allocate pages for slice") as *mut _;
+        // SAFETY: We just allocated the memory at `pointer`.
         unsafe { core::ptr::write_bytes(pointer, 0, len) };
+        // SAFETY: We just allocated the memory at `pointer`.
         let slice = unsafe { core::slice::from_raw_parts_mut(pointer, len) };
         slice
     }
@@ -97,11 +100,12 @@ impl BootContext {
         unsafe { MaybeUninit::slice_assume_init_mut(slice) }
     }
 
-    pub(crate) unsafe fn map_segment(&mut self, segment: ProgramHeader) -> &'static mut [u8] {
-        let slice = if segment.p_paddr == 0x100000 {
+    pub(crate) fn map_segment(&mut self, segment: &ProgramHeader) -> &'static mut [u8] {
+        // x86_64 .init section
+        let slice = if segment.p_paddr == 0x10_0000 {
             let maybe_uninit_slice = self.allocate_slice_inner(
                 segment.p_memsz as usize,
-                AllocateType::Address(0x100000),
+                AllocateType::Address(0x10_0000),
                 KERNEL_MEMORY,
             );
             // SAFETY: allocate_slice_inner zeroed the bytes so they are initialised.
@@ -161,6 +165,7 @@ impl BootContext {
         } = self.system_table.boot_services().memory_map_size();
         let predicted_map_size = map_size + (4 * entry_size);
 
+        // FIXME: Allocate slice
         let memory_map_storage = {
             let pointer = self
                 .system_table
@@ -170,14 +175,15 @@ impl BootContext {
                     MemoryType::LOADER_DATA,
                     calculate_pages(predicted_map_size),
                 )
-                .unwrap();
+                .expect("failed to allocate pages for memory map");
+            // SAFETY: We just allocated the memory at `pointer`.
             unsafe { core::slice::from_raw_parts_mut(pointer as *mut _, predicted_map_size) }
         };
 
         let (_, memory_map) = self
             .system_table
             .exit_boot_services(self.image_handle, memory_map_storage)
-            .unwrap();
+            .expect("failed to exit boot services");
 
         RuntimeContext {
             page_allocator: self.page_allocator,

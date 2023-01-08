@@ -1,11 +1,17 @@
 use crate::KernelContext;
 use core::arch::asm;
 
-pub mod memory;
+pub(crate) mod memory;
 
 pub(crate) fn pre_context_switch_actions() {}
 
+// The function needs to take ownership of the context so that it remains valid
+// when we switch page tables.
+#[allow(clippy::needless_pass_by_value)]
 pub(crate) unsafe fn context_switch(context: KernelContext) -> ! {
+    // SAFETY: The caller guarantees that the context switch function is
+    // identity-mapped, the stack pointer is mapped in the new page table, and the
+    // kernel entry point is correct.
     unsafe {
         asm!(
             "mov cr3, {}; mov rsp, {}; jmp {}",
@@ -20,6 +26,7 @@ pub(crate) unsafe fn context_switch(context: KernelContext) -> ! {
 
 pub(crate) fn halt() -> ! {
     loop {
+        // SAFETY: These instructions will stop the CPU.
         unsafe { asm!("cli", "hlt") };
     }
 }

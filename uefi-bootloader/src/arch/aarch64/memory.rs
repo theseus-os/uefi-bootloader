@@ -161,7 +161,7 @@ impl PageAllocator {
         VirtualAddress::new(address).unwrap()
     }
 
-    pub(crate) fn mark_segment_as_used(&mut self, segment: ProgramHeader) {
+    pub(crate) fn mark_segment_as_used(&mut self, segment: &ProgramHeader) {
         let start = VirtualAddress::new_canonical(segment.p_vaddr as usize);
         let end_inclusive = (start + segment.p_memsz as usize) - 1;
 

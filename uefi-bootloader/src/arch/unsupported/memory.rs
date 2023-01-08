@@ -60,7 +60,7 @@ impl PageAllocator {
         unimplemented!();
     }
 
-    pub(crate) fn mark_segment_as_used(&mut self, _segment: ProgramHeader) {
+    pub(crate) fn mark_segment_as_used(&mut self, _segment: &ProgramHeader) {
         unimplemented!();
     }
 }

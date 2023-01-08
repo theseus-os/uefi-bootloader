@@ -25,7 +25,7 @@ pub(crate) use imp::{set_up_arch_specific_mappings, Mapper, PageAllocator, PteFl
 pub(crate) const PAGE_SIZE: usize = 4096;
 const MAX_PAGE_NUMBER: usize = usize::MAX / PAGE_SIZE;
 
-pub(crate) const KERNEL_MEMORY: MemoryType = MemoryType::custom(0xffffffff);
+pub(crate) const KERNEL_MEMORY: MemoryType = MemoryType::custom(0xffff_ffff);
 
 /// A macro for defining `VirtualAddress` and `PhysicalAddress` structs
 /// and implementing their common traits, which are generally identical.
@@ -42,7 +42,7 @@ macro_rules! implement_address {
                 FromBytes,
             )]
             #[repr(transparent)]
-            pub struct $TypeName(usize);
+            pub(crate) struct $TypeName(usize);
 
             impl $TypeName {
                 #[doc = "Creates a new `" $TypeName "`, returning an error if the address is not canonical.\n\n \
@@ -50,23 +50,23 @@ macro_rules! implement_address {
                     For example, on x86_64, virtual addresses are canonical
                     if their upper bits `(64:48]` are sign-extended from bit 47,
                     and physical addresses are canonical if their upper bits `(64:52]` are 0."]
-                pub fn new(addr: usize) -> Option<$TypeName> {
+                pub(crate) fn new(addr: usize) -> Option<$TypeName> {
                     if $is_canonical(addr) { Some($TypeName(addr)) } else { None }
                 }
 
                 #[doc = "Creates a new `" $TypeName "` that is guaranteed to be canonical."]
-                pub const fn new_canonical(addr: usize) -> $TypeName {
+                pub(crate) const fn new_canonical(addr: usize) -> $TypeName {
                     $TypeName($canonicalize(addr))
                 }
 
                 #[doc = "Creates a new `" $TypeName "` with a value 0."]
-                pub const fn zero() -> $TypeName {
+                pub(crate) const fn zero() -> $TypeName {
                     $TypeName(0)
                 }
 
                 #[doc = "Returns the underlying `usize` value for this `" $TypeName "`."]
                 #[inline]
-                pub const fn value(&self) -> usize {
+                pub(crate) const fn value(&self) -> usize {
                     self.0
                 }
 
@@ -74,22 +74,22 @@ macro_rules! implement_address {
                     $TypeName ".\n\n \
                     For example, if the [`PAGE_SIZE`] is 4096 (4KiB), then this will return
                     the least significant 12 bits `(12:0]` of this `" $TypeName "`."]
-                pub const fn [<$chunk _offset>](&self) -> usize {
+                pub(crate) const fn [<$chunk _offset>](&self) -> usize {
                     self.0 & (PAGE_SIZE - 1)
                 }
             }
             impl fmt::Debug for $TypeName {
-                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     write!(f, concat!($prefix, "{:#X}"), self.0)
                 }
             }
             impl fmt::Display for $TypeName {
-                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     write!(f, "{:?}", self)
                 }
             }
             impl fmt::Pointer for $TypeName {
-                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     write!(f, "{:?}", self)
                 }
             }
@@ -151,31 +151,31 @@ macro_rules! implement_page_frame {
 
             #[doc = "A `" $TypeName "` is a chunk of **" $desc "** memory aligned to a [`PAGE_SIZE`] boundary."]
             #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-            pub struct $TypeName {
+            pub(crate) struct $TypeName {
                 pub(crate) number: usize,
             }
 
             impl $TypeName {
                 #[doc = "Returns the `" $address "` at the start of this `" $TypeName "`."]
-                pub const fn start_address(&self) -> $address {
+                pub(crate) const fn start_address(&self) -> $address {
                     $address::new_canonical(self.number * PAGE_SIZE)
                 }
 
                 #[doc = "Returns the number of this `" $TypeName "`."]
                 #[inline(always)]
-                pub const fn number(&self) -> usize {
+                pub(crate) const fn number(&self) -> usize {
                     self.number
                 }
 
                 #[doc = "Returns the `" $TypeName "` containing the given `" $address "`."]
-                pub const fn containing_address(addr: $address) -> $TypeName {
+                pub(crate) const fn containing_address(addr: $address) -> $TypeName {
                     $TypeName {
                         number: addr.value() / PAGE_SIZE,
                     }
                 }
             }
             impl fmt::Debug for $TypeName {
-                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     write!(f, concat!(stringify!($TypeName), "(", $prefix, "{:#X})"), self.start_address())
                 }
             }
@@ -184,14 +184,14 @@ macro_rules! implement_page_frame {
                 fn add(self, rhs: usize) -> $TypeName {
                     // cannot exceed max page number (which is also max frame number)
                     $TypeName {
-                        number: core::cmp::min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
+                        number: min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
                     }
                 }
             }
             impl AddAssign<usize> for $TypeName {
                 fn add_assign(&mut self, rhs: usize) {
                     *self = $TypeName {
-                        number: core::cmp::min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
+                        number: min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
                     };
                 }
             }
@@ -240,22 +240,22 @@ macro_rules! implement_page_frame_range {
 
             #[doc = "A range of [`" $chunk "`]s that are contiguous in " $desc " memory."]
             #[derive(Clone, PartialEq, Eq)]
-            pub struct $TypeName(RangeInclusive<$chunk>);
+            pub(crate) struct $TypeName(RangeInclusive<$chunk>);
 
             impl $TypeName {
                 #[doc = "Creates a new range of [`" $chunk "`]s that spans from `start` to `end`, both inclusive bounds."]
-                pub const fn new(start: $chunk, end: $chunk) -> $TypeName {
+                pub(crate) const fn new(start: $chunk, end: $chunk) -> $TypeName {
                     $TypeName(RangeInclusive::new(start, end))
                 }
 
                 #[doc = "Creates a `" $TypeName "` that will always yield `None` when iterated."]
-                pub const fn empty() -> $TypeName {
+                pub(crate) const fn empty() -> $TypeName {
                     $TypeName::new($chunk { number: 1 }, $chunk { number: 0 })
                 }
 
                 #[doc = "A convenience method for creating a new `" $TypeName "` that spans \
                     all [`" $chunk "`]s from the given [`" $address "`] to an end bound based on the given size."]
-                pub fn [<from_ $short _addr>](starting_addr: $address, size_in_bytes: usize) -> $TypeName {
+                pub(crate) fn [<from_ $short _addr>](starting_addr: $address, size_in_bytes: usize) -> $TypeName {
                     assert!(size_in_bytes > 0);
                     let start = $chunk::containing_address(starting_addr);
                     // The end bound is inclusive, hence the -1. Parentheses are needed to avoid overflow.
@@ -264,25 +264,25 @@ macro_rules! implement_page_frame_range {
                 }
 
                 #[doc = "Returns the [`" $address "`] of the starting [`" $chunk "`] in this `" $TypeName "`."]
-                pub const fn start_address(&self) -> $address {
+                pub(crate) const fn start_address(&self) -> $address {
                     self.0.start().start_address()
                 }
 
                 #[doc = "Returns the number of [`" $chunk "`]s covered by this iterator.\n\n \
                     Use this instead of [`Iterator::count()`] method. \
                     This is instant, because it doesn't need to iterate over each entry, unlike normal iterators."]
-                pub const fn [<size_in_ $chunk:lower s>](&self) -> usize {
+                pub(crate) const fn [<size_in_ $chunk:lower s>](&self) -> usize {
                     // add 1 because it's an inclusive range
                     (self.0.end().number + 1).saturating_sub(self.0.start().number)
                 }
 
                 /// Returns the size of this range in number of bytes.
-                pub const fn size_in_bytes(&self) -> usize {
+                pub(crate) const fn size_in_bytes(&self) -> usize {
                     self.[<size_in_ $chunk:lower s>]() * PAGE_SIZE
                 }
 
                 #[doc = "Returns `true` if this `" $TypeName "` contains the given [`" $address "`]."]
-                pub fn contains_address(&self, addr: $address) -> bool {
+                pub(crate) fn contains_address(&self, addr: $address) -> bool {
                     self.0.contains(&$chunk::containing_address(addr))
                 }
 
@@ -291,7 +291,7 @@ macro_rules! implement_page_frame_range {
                     If the given `addr` is not covered by this range of [`" $chunk "`]s, this returns `None`.\n\n \
                     # Examples\n \
                     If the range covers addresses `0x2000` to `0x4000`, then `offset_of_address(0x3500)` would return `Some(0x1500)`."]
-                pub fn offset_of_address(&self, addr: $address) -> Option<usize> {
+                pub(crate) fn offset_of_address(&self, addr: $address) -> Option<usize> {
                     if self.contains_address(addr) {
                         Some(addr.value() - self.start_address().value())
                     } else {
@@ -304,7 +304,7 @@ macro_rules! implement_page_frame_range {
                     If the given `offset` is not within this range of [`" $chunk "`]s, this returns `None`.\n\n \
                     # Examples\n \
                     If the range covers addresses `0x2000` to `0x4000`, then `address_at_offset(0x1500)` would return `Some(0x3500)`."]
-                pub fn address_at_offset(&self, offset: usize) -> Option<$address> {
+                pub(crate) fn address_at_offset(&self, offset: usize) -> Option<$address> {
                     if offset <= self.size_in_bytes() {
                         Some(self.start_address() + offset)
                     }
@@ -314,20 +314,20 @@ macro_rules! implement_page_frame_range {
                 }
 
                 #[doc = "Returns a new separate `" $TypeName "` that is extended to include the given [`" $chunk "`]."]
-                pub fn to_extended(&self, to_include: $chunk) -> $TypeName {
+                pub(crate) fn to_extended(&self, to_include: $chunk) -> $TypeName {
                     // if the current range was empty, return a new range containing only the given page/frame
                     if self.is_empty() {
                         return $TypeName::new(to_include.clone(), to_include);
                     }
-                    let start = core::cmp::min(self.0.start(), &to_include);
-                    let end = core::cmp::max(self.0.end(), &to_include);
+                    let start = min(self.0.start(), &to_include);
+                    let end = max(self.0.end(), &to_include);
                     $TypeName::new(start.clone(), end.clone())
                 }
 
                 #[doc = "Returns an inclusive `" $TypeName "` representing the [`" $chunk "`]s that overlap \
                     across this `" $TypeName "` and the given other `" $TypeName "`.\n\n \
                     If there is no overlap between the two ranges, `None` is returned."]
-                pub fn overlap(&self, other: &$TypeName) -> Option<$TypeName> {
+                pub(crate) fn overlap(&self, other: &$TypeName) -> Option<$TypeName> {
                     let starts = max(*self.start(), *other.start());
                     let ends   = min(*self.end(),   *other.end());
                     if starts <= ends {
@@ -338,7 +338,7 @@ macro_rules! implement_page_frame_range {
                 }
             }
             impl fmt::Debug for $TypeName {
-                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     write!(f, "{:?}", self.0)
                 }
             }
@@ -386,7 +386,7 @@ pub(crate) struct UefiFrameAllocator<'a> {
     pub(crate) system_table: &'a SystemTable<Boot>,
 }
 
-impl<'a> FrameAllocator for UefiFrameAllocator<'a> {
+impl FrameAllocator for UefiFrameAllocator<'_> {
     fn allocate_frame(&mut self) -> Option<Frame> {
         self.system_table
             .boot_services()
@@ -447,7 +447,9 @@ impl LegacyFrameAllocator {
         memory_map: &mut [MaybeUninit<MemoryRegion>],
     ) -> &mut [MemoryRegion] {
         // We definetly allocated at least one frame, right?
-        let current_descriptor = self.current_descriptor.unwrap();
+        let current_descriptor = self
+            .current_descriptor
+            .expect("failed to get current descriptor");
         let mut index = 0;
         let mut iterated_through_used_descriptors = false;
 
@@ -494,6 +496,7 @@ impl LegacyFrameAllocator {
             }
         }
 
+        // SAFETY: We initialised all the items up to `index`.
         unsafe { MaybeUninit::slice_assume_init_mut(&mut memory_map[..index]) }
     }
 }
