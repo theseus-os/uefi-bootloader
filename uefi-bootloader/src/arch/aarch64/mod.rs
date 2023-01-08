@@ -2,7 +2,10 @@
 
 use crate::KernelContext;
 use core::arch::asm;
-use cortex_a::{asm::barrier, registers::*};
+use cortex_a::{
+    asm::barrier,
+    registers::{MAIR_EL1, SCTLR_EL1, TCR_EL1},
+};
 use tock_registers::interfaces::{ReadWriteable, Writeable};
 
 pub(crate) mod memory;

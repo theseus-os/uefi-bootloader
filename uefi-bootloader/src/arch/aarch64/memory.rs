@@ -9,7 +9,6 @@ use core::{
 };
 use cortex_a::{asm::barrier, registers::TTBR0_EL1};
 use goblin::elf64::program_header::ProgramHeader;
-use tock_registers::interfaces::Readable;
 
 /// On aarch64, VAs are composed of an ASID
 /// which is 8 or 16 bits long depending
@@ -97,19 +96,19 @@ impl PteFlags {
 }
 
 impl Page {
-    const fn p0_index(&self) -> usize {
+    const fn p0_index(self) -> usize {
         (self.number >> 27) & 0x1ff
     }
 
-    const fn p1_index(&self) -> usize {
+    const fn p1_index(self) -> usize {
         (self.number >> 18) & 0x1ff
     }
 
-    const fn p2_index(&self) -> usize {
+    const fn p2_index(self) -> usize {
         (self.number >> 9) & 0x1ff
     }
 
-    const fn p3_index(&self) -> usize {
+    const fn p3_index(self) -> usize {
         self.number & 0x1ff
     }
 }
@@ -158,7 +157,7 @@ impl PageAllocator {
         let mut address = 0;
 
         address.set_bits(39..47, level_0_index);
-        VirtualAddress::new(address).unwrap()
+        VirtualAddress::new(address).expect("allocated invalid virtual address")
     }
 
     pub(crate) fn mark_segment_as_used(&mut self, segment: &ProgramHeader) {
@@ -185,7 +184,7 @@ impl Mapper {
     {
         let address = frame_allocator
             .allocate_frame()
-            .unwrap()
+            .expect("failed to allocate frame for page table")
             .start_address()
             .value() as *mut PageTable;
         unsafe { ptr::write_bytes(address, 0, 1) };
@@ -246,8 +245,6 @@ impl Mapper {
     }
 }
 
-// NOTE: The below only works with an identity-mapping.
-
 #[derive(Debug)]
 #[repr(C, align(4096))]
 struct PageTable {
@@ -255,18 +252,20 @@ struct PageTable {
 }
 
 impl PageTable {
-    unsafe fn create_next_table<'a, 'b, T>(
+    unsafe fn create_next_table<T>(
         &mut self,
         index: usize,
         page_table_flags: PteFlags,
-        frame_allocator: &'b mut T,
-    ) -> &'a mut PageTable
+        frame_allocator: &mut T,
+    ) -> &mut PageTable
     where
         T: FrameAllocator,
     {
         let entry = &mut self[index];
         if entry.is_unused() {
-            let frame = frame_allocator.allocate_frame().unwrap();
+            let frame = frame_allocator
+                .allocate_frame()
+                .expect("failed to allocate frame for page table");
             unsafe { ptr::write_bytes(frame.start_address().value() as *mut PageTable, 0, 1) };
             entry.set(frame, page_table_flags);
         }
@@ -308,6 +307,7 @@ impl PageTableEntry {
 
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_page_table(&self) -> &'static mut PageTable {
+        // SAFETY: Address validity guaranteed by caller.
         unsafe { &mut *((self.0.get_bits(12..52) << 12) as *mut _) }
     }
 }

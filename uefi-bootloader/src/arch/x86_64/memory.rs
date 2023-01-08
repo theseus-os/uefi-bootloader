@@ -222,7 +222,7 @@ impl Mapper {
     {
         let frame = frame_allocator
             .allocate_frame()
-            .expect("failed to allocate frame for mapper");
+            .expect("failed to allocate frame for page table");
         // Physical memory is identity-mapped.
         let pointer = frame.start_address().value() as *mut PageTable;
         // SAFETY: It is a valid, page-aligned pointer.
@@ -250,7 +250,7 @@ impl Mapper {
 
         let new_frame = frame_allocator
             .allocate_frame()
-            .expect("failed to allocate frame for mapper");
+            .expect("failed to allocate frame for page table");
         let new_table = {
             let pointer = new_frame.start_address().value() as *mut PageTable;
             // SAFETY: The pointer is valid as physical memory is identity-mapped.
