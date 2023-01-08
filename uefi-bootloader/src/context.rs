@@ -20,6 +20,7 @@ use uefi::{
     Handle,
 };
 
+/// Bootloader context before extiting boot services.
 pub(crate) struct BootContext {
     pub(crate) image_handle: Handle,
     pub(crate) system_table: SystemTable<Boot>,
@@ -165,20 +166,8 @@ impl BootContext {
         } = self.system_table.boot_services().memory_map_size();
         let predicted_map_size = map_size + (4 * entry_size);
 
-        // FIXME: Allocate slice
-        let memory_map_storage = {
-            let pointer = self
-                .system_table
-                .boot_services()
-                .allocate_pages(
-                    AllocateType::AnyPages,
-                    MemoryType::LOADER_DATA,
-                    calculate_pages(predicted_map_size),
-                )
-                .expect("failed to allocate pages for memory map");
-            // SAFETY: We just allocated the memory at `pointer`.
-            unsafe { core::slice::from_raw_parts_mut(pointer as *mut _, predicted_map_size) }
-        };
+        let memory_map_storage =
+            self.allocate_byte_slice(predicted_map_size, MemoryType::LOADER_DATA);
 
         let (_, memory_map) = self
             .system_table
@@ -193,6 +182,7 @@ impl BootContext {
     }
 }
 
+/// Bootloader context after extiting boot services.
 pub(crate) struct RuntimeContext {
     pub(crate) page_allocator: PageAllocator,
     pub(crate) frame_allocator: LegacyFrameAllocator,
