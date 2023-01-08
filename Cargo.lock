@@ -230,7 +230,6 @@ name = "uefi-bootloader"
 version = "0.1.0"
 dependencies = [
  "bit_field",
- "bitflags",
  "cfg-if",
  "cortex-a",
  "derive_more",
