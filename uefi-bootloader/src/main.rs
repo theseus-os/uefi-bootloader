@@ -61,6 +61,8 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let mut context = BootContext::new(handle, system_table);
     let (entry_point, elf_sections) = context.load_kernel();
     info!("loaded kernel");
+    // This may take a sec.
+    info!("loading modules...");
     let modules = context.load_modules();
     info!("loaded modules");
 
