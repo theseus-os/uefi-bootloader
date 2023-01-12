@@ -1,5 +1,5 @@
 use crate::{
-    context_switch,
+    jump_to_kernel,
     memory::{Frame, FrameAllocator, Page, PhysicalAddress, PteFlags, VirtualAddress},
     RuntimeContext,
 };
@@ -39,8 +39,8 @@ impl RuntimeContext {
         // Identity-map the context switch function so that when it switches to the new
         // page table, it continues executing.
         self.mapper.map(
-            Page::containing_address(VirtualAddress::new_canonical(context_switch as usize)),
-            Frame::containing_address(PhysicalAddress::new_canonical(context_switch as usize)),
+            Page::containing_address(VirtualAddress::new_canonical(jump_to_kernel as usize)),
+            Frame::containing_address(PhysicalAddress::new_canonical(jump_to_kernel as usize)),
             PteFlags::new().present(true),
             &mut self.frame_allocator,
         );

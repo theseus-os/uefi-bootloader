@@ -17,7 +17,7 @@ mod memory;
 mod modules;
 mod util;
 
-use crate::arch::{context_switch, pre_context_switch_actions};
+use crate::arch::{jump_to_kernel, pre_context_switch_actions};
 use crate::memory::{Frame, VirtualAddress};
 use core::{fmt::Write, ptr::NonNull};
 use log::{error, info};
@@ -90,9 +90,9 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         boot_info,
     };
 
-    info!("about to switch to kernel: {context:x?}");
+    info!("about to jump to kernel: {context:x?}");
     // SAFETY: Everything is correctly mapped.
-    unsafe { context_switch(context) };
+    unsafe { jump_to_kernel(context) };
 }
 
 fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
