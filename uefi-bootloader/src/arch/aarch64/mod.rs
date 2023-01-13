@@ -14,7 +14,7 @@ pub(crate) mod memory;
 // when we switch page tables.
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) unsafe fn jump_to_kernel(
-    page_table: *const (),
+    page_table_frame: *const (),
     entry_point: *const (),
     boot_info: *const (),
     stack_top: *const (),
