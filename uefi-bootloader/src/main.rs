@@ -17,7 +17,7 @@ mod memory;
 mod modules;
 mod util;
 
-use crate::arch::{jump_to_kernel, pre_context_switch_actions};
+use crate::arch::jump_to_kernel;
 use crate::memory::{Frame, VirtualAddress};
 use core::{fmt::Write, ptr::NonNull};
 use log::{error, info};
@@ -78,21 +78,15 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     );
 
     let boot_info = context.create_boot_info(frame_buffer, rsdp_address, modules, elf_sections);
-    info!("created boot info: {boot_info:x?}");
+    info!("created boot info: {boot_info:#x?}");
 
-    info!("running pre-context switch actions");
-    pre_context_switch_actions();
+    let entry_point = entry_point.value() as _;
+    let stack_top = stack_top.value() as _;
+    let boot_info = boot_info as *const _ as _;
+    let page_table_frame = page_table_frame.start_address().value() as _;
 
-    let context = KernelContext {
-        page_table_frame,
-        stack_top,
-        entry_point,
-        boot_info,
-    };
-
-    info!("about to jump to kernel: {context:x?}");
-    // SAFETY: Everything is correctly mapped.
-    unsafe { jump_to_kernel(context) };
+    info!("about to jump to kernel: 0x{:x}", entry_point as usize);
+    unsafe { jump_to_kernel(page_table_frame, entry_point, boot_info, stack_top) };
 }
 
 fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {

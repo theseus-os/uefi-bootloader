@@ -55,7 +55,7 @@ impl PteFlags {
     }
 
     pub(crate) fn present(self, enable: bool) -> Self {
-        const BITS: u64 = 1;
+        const BITS: u64 = 1 << 0;
 
         if enable {
             Self(self.0 | BITS)

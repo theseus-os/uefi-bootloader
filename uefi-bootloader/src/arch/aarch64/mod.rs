@@ -4,38 +4,52 @@ use crate::KernelContext;
 use core::arch::asm;
 use cortex_a::{
     asm::barrier,
-    registers::{MAIR_EL1, SCTLR_EL1, TCR_EL1},
+    registers::{MAIR_EL1, SCTLR_EL1, TCR_EL1, TTBR0_EL1},
 };
 use tock_registers::interfaces::{ReadWriteable, Writeable};
 
 pub(crate) mod memory;
 
-pub(crate) fn pre_context_switch_actions() {
-    enable_mmu();
-    configure_translation_registers();
-}
-
 // The function needs to take ownership of the context so that it remains valid
 // when we switch page tables.
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) unsafe fn jump_to_kernel(context: KernelContext) -> ! {
-    // SAFETY: The caller guarantees that the context switch function is
-    // identity-mapped, the stack pointer is mapped in the new page table, and the
-    // kernel entry point is correct.
-    unsafe {
-        // TODO: Set stack pointer, and jump to entry point.
-        core::arch::asm!(
-            "msr ttbr0_el1, {}",
-            "tlbi alle1",
-            "dsb ish",
-            "isb",
-            "2:",
-            "mov x2, 0xdead",
-            "b 2b",
-            in(reg) (context.page_table_frame.start_address().value() as u64),
-            options(noreturn),
-        )
-    };
+pub(crate) unsafe fn jump_to_kernel(
+    page_table: *const (),
+    entry_point: *const (),
+    boot_info: *const (),
+    stack_top: *const (),
+) -> ! {
+    // disable the MMU
+    SCTLR_EL1.modify(SCTLR_EL1::M::Disable);
+    barrier::isb(barrier::SY);
+
+    // install the new page table
+    let page_table_addr = page_table as u64;
+    TTBR0_EL1.write(
+          TTBR0_EL1::ASID.val(ASID_ZERO as u64)
+        + TTBR0_EL1::BADDR.val(page_table_addr >> 1)
+    );
+
+    configure_translation_registers();
+
+    // re-enable the MMU
+    barrier::isb(barrier::SY);
+    SCTLR_EL1.modify(SCTLR_EL1::M::Enable);
+    barrier::isb(barrier::SY);
+
+    // flush the tlb
+    asm!("tlbi aside1, {}", in(reg) 0usize);
+
+    // flush the tlb
+    asm!("mov sp, {}", in(reg) stack_top);
+
+    // jump to the entry point defined by the kernel
+    asm!(
+        "br {}",
+        in(reg) entry_point,
+        in("x0") boot_info,
+        options(noreturn)
+    )
 }
 
 pub(crate) fn halt() -> ! {
@@ -45,13 +59,9 @@ pub(crate) fn halt() -> ! {
     }
 }
 
-const THESEUS_ASID: u16 = 0;
+const ASID_ZERO: u16 = 0;
 
-fn enable_mmu() {
-    SCTLR_EL1.modify(SCTLR_EL1::M::Enable);
-    barrier::isb(barrier::SY);
-}
-
+#[inline(always)]
 fn configure_translation_registers() {
     MAIR_EL1.write(
         MAIR_EL1::Attr1_Device::nonGathering_nonReordering_EarlyWriteAck
@@ -70,6 +80,4 @@ fn configure_translation_registers() {
             + TCR_EL1::HA::Enable
             + TCR_EL1::HD::Enable,
     );
-
-    barrier::isb(barrier::SY);
 }
