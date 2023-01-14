@@ -1,6 +1,5 @@
 // FIXME: This doesn't work.
 
-use crate::KernelContext;
 use core::arch::asm;
 use cortex_a::{
     asm::barrier,
@@ -25,10 +24,8 @@ pub(crate) unsafe fn jump_to_kernel(
 
     // install the new page table
     let page_table_addr = page_table_frame as u64;
-    TTBR0_EL1.write(
-          TTBR0_EL1::ASID.val(ASID_ZERO as u64)
-        + TTBR0_EL1::BADDR.val(page_table_addr >> 1)
-    );
+    TTBR0_EL1
+        .write(TTBR0_EL1::ASID.val(ASID_ZERO.into()) + TTBR0_EL1::BADDR.val(page_table_addr >> 1));
 
     configure_translation_registers();
 
@@ -37,19 +34,22 @@ pub(crate) unsafe fn jump_to_kernel(
     SCTLR_EL1.modify(SCTLR_EL1::M::Enable);
     barrier::isb(barrier::SY);
 
-    // flush the tlb
-    asm!("tlbi aside1, {}", in(reg) 0usize);
-
-    // flush the tlb
-    asm!("mov sp, {}", in(reg) stack_top);
-
-    // jump to the entry point defined by the kernel
-    asm!(
-        "br {}",
-        in(reg) entry_point,
-        in("x0") boot_info,
-        options(noreturn)
-    )
+    // SAFETY: Everything is corectly set up.
+    unsafe {
+        asm!(
+            // flush the TLB
+            "tlbi aside1, {}",
+            // set the stack pointer
+            "mov sp, {}",
+            // jump to the entry point
+            "br {}",
+            in(reg) 0,
+            in(reg) stack_top,
+            in(reg) entry_point,
+            in("x0") boot_info,
+            options(noreturn)
+        )
+    }
 }
 
 pub(crate) fn halt() -> ! {
@@ -61,7 +61,6 @@ pub(crate) fn halt() -> ! {
 
 const ASID_ZERO: u16 = 0;
 
-#[inline(always)]
 fn configure_translation_registers() {
     MAIR_EL1.write(
         MAIR_EL1::Attr1_Device::nonGathering_nonReordering_EarlyWriteAck

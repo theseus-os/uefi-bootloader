@@ -300,7 +300,8 @@ impl PageTableEntry {
         PhysicalAddress::new_canonical(self.0 as usize & (!(PAGE_SIZE - 1) & !(0xffff << 48)))
     }
 
-    fn set(&mut self, frame: Frame, flags: PteFlags) {
+    // FIXME
+    fn set(&mut self, frame: Frame, _flags: PteFlags) {
         // self.0 = frame.start_address().value() as u64 | flags.0;
         self.0 = frame.start_address().value() as u64 | 0x70f;
     }
