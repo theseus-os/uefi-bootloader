@@ -78,14 +78,9 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     );
 
     let boot_info = context.create_boot_info(frame_buffer, rsdp_address, modules, elf_sections);
-    info!("created boot info: {boot_info:#x?}");
+    info!("created boot info: {boot_info:x?}");
 
-    let entry_point = entry_point.value() as _;
-    let stack_top = stack_top.value() as _;
-    let boot_info = boot_info as *const _ as _;
-    let page_table_frame = page_table_frame.start_address().value() as _;
-
-    info!("about to jump to kernel: 0x{:x}", entry_point as usize);
+    info!("about to jump to kernel: {:x?}", entry_point.value());
     unsafe { jump_to_kernel(page_table_frame, entry_point, boot_info, stack_top) };
 }
 
@@ -140,15 +135,6 @@ fn get_rsdp_address(system_table: &SystemTable<Boot>) -> Option<usize> {
     // if no ACPI2 RSDP is found, look for a ACPI1 RSDP
     let rsdp = acpi2_rsdp.or_else(|| config_entries.find(|entry| matches!(entry.guid, ACPI_GUID)));
     rsdp.map(|entry| entry.address as usize)
-}
-
-/// The context necessary to switch to the kernel.
-#[derive(Clone, Copy, Debug)]
-struct KernelContext {
-    page_table_frame: Frame,
-    stack_top: VirtualAddress,
-    entry_point: VirtualAddress,
-    boot_info: &'static BootInformation,
 }
 
 #[panic_handler]
