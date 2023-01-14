@@ -17,8 +17,7 @@ mod memory;
 mod modules;
 mod util;
 
-use crate::arch::{jump_to_kernel, pre_context_switch_actions};
-use crate::memory::{Frame, VirtualAddress};
+use crate::arch::jump_to_kernel;
 use core::{fmt::Write, ptr::NonNull};
 use log::{error, info};
 use uefi::{
@@ -30,7 +29,7 @@ use uefi::{
     },
     Handle, Status,
 };
-use uefi_bootloader_api::{BootInformation, FrameBuffer, FrameBufferInfo, PixelFormat};
+use uefi_bootloader_api::{FrameBuffer, FrameBufferInfo, PixelFormat};
 
 pub(crate) use context::{BootContext, RuntimeContext};
 
@@ -80,19 +79,9 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     let boot_info = context.create_boot_info(frame_buffer, rsdp_address, modules, elf_sections);
     info!("created boot info: {boot_info:x?}");
 
-    info!("running pre-context switch actions");
-    pre_context_switch_actions();
-
-    let context = KernelContext {
-        page_table_frame,
-        stack_top,
-        entry_point,
-        boot_info,
-    };
-
-    info!("about to jump to kernel: {context:x?}");
+    info!("about to jump to kernel: {:x?}", entry_point.value());
     // SAFETY: Everything is correctly mapped.
-    unsafe { jump_to_kernel(context) };
+    unsafe { jump_to_kernel(page_table_frame, entry_point, boot_info, stack_top) };
 }
 
 fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
@@ -146,15 +135,6 @@ fn get_rsdp_address(system_table: &SystemTable<Boot>) -> Option<usize> {
     // if no ACPI2 RSDP is found, look for a ACPI1 RSDP
     let rsdp = acpi2_rsdp.or_else(|| config_entries.find(|entry| matches!(entry.guid, ACPI_GUID)));
     rsdp.map(|entry| entry.address as usize)
-}
-
-/// The context necessary to switch to the kernel.
-#[derive(Clone, Copy, Debug)]
-struct KernelContext {
-    page_table_frame: Frame,
-    stack_top: VirtualAddress,
-    entry_point: VirtualAddress,
-    boot_info: &'static BootInformation,
 }
 
 #[panic_handler]

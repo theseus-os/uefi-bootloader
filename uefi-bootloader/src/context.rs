@@ -102,17 +102,20 @@ impl BootContext {
     }
 
     pub(crate) fn map_segment(&mut self, segment: &ProgramHeader) -> &'static mut [u8] {
+        let in_page_offset = (segment.p_vaddr as usize) & 0xfff;
+        let size_from_page_start = in_page_offset + segment.p_memsz as usize;
+
         // x86_64 .init section
         let slice = if segment.p_paddr == 0x10_0000 {
             let maybe_uninit_slice = self.allocate_slice_inner(
-                segment.p_memsz as usize,
+                size_from_page_start,
                 AllocateType::Address(0x10_0000),
                 KERNEL_MEMORY,
             );
             // SAFETY: allocate_slice_inner zeroed the bytes so they are initialised.
             unsafe { MaybeUninit::slice_assume_init_mut(maybe_uninit_slice) }
         } else {
-            self.allocate_byte_slice(segment.p_memsz as usize, KERNEL_MEMORY)
+            self.allocate_byte_slice(size_from_page_start, KERNEL_MEMORY)
         };
 
         self.page_allocator.mark_segment_as_used(segment);
@@ -120,7 +123,7 @@ impl BootContext {
         let virtual_start = VirtualAddress::new_canonical(segment.p_vaddr as usize);
         let virtual_end_inclusive = virtual_start + segment.p_memsz as usize - 1;
 
-        let physical_start = PhysicalAddress::new_canonical(slice.as_ptr() as usize);
+        let physical_start = PhysicalAddress::new_canonical(slice.as_ptr() as usize + in_page_offset);
         let physical_end_inclusive = physical_start + segment.p_memsz as usize - 1;
 
         let pages = PageRange::new(
@@ -156,7 +159,7 @@ impl BootContext {
             );
         }
 
-        slice
+        &mut slice[in_page_offset..]
     }
 
     pub(crate) fn exit_boot_services(self) -> RuntimeContext {
