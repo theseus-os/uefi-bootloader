@@ -24,7 +24,7 @@ pub(crate) unsafe fn jump_to_kernel(
     barrier::isb(barrier::SY);
 
     // install the new page table
-    let page_table_addr = page_table as u64;
+    let page_table_addr = page_table_frame as u64;
     TTBR0_EL1.write(
           TTBR0_EL1::ASID.val(ASID_ZERO as u64)
         + TTBR0_EL1::BADDR.val(page_table_addr >> 1)
