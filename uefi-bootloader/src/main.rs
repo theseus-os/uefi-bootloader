@@ -18,7 +18,6 @@ mod modules;
 mod util;
 
 use crate::arch::jump_to_kernel;
-use crate::memory::{Frame, VirtualAddress};
 use core::{fmt::Write, ptr::NonNull};
 use log::{error, info};
 use uefi::{
@@ -30,7 +29,7 @@ use uefi::{
     },
     Handle, Status,
 };
-use uefi_bootloader_api::{BootInformation, FrameBuffer, FrameBufferInfo, PixelFormat};
+use uefi_bootloader_api::{FrameBuffer, FrameBufferInfo, PixelFormat};
 
 pub(crate) use context::{BootContext, RuntimeContext};
 
@@ -81,6 +80,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     info!("created boot info: {boot_info:x?}");
 
     info!("about to jump to kernel: {:x?}", entry_point.value());
+    // SAFETY: Everything is correctly mapped.
     unsafe { jump_to_kernel(page_table_frame, entry_point, boot_info, stack_top) };
 }
 
