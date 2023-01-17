@@ -84,6 +84,16 @@ impl PteFlags {
         }
     }
 
+    fn accessed(self, enable: bool) -> Self {
+        const BITS: u64 = 1 << 10;
+
+        if enable {
+            Self(self.0 | BITS)
+        } else {
+            Self(self.0 & !(BITS))
+        }
+    }
+
     pub(crate) fn no_execute(self, enable: bool) -> Self {
         const BITS: u64 = (1 << 53) | (1 << 54);
 
@@ -301,8 +311,7 @@ impl PageTableEntry {
     }
 
     fn set(&mut self, frame: Frame, flags: PteFlags) {
-        // self.0 = frame.start_address().value() as u64 | flags.0;
-        self.0 = frame.start_address().value() as u64 | 0x70f;
+        self.0 = frame.start_address().value() as u64 | flags.accessed(true).0;
     }
 
     #[allow(clippy::mut_from_ref)]

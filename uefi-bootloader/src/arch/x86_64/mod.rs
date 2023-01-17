@@ -1,5 +1,6 @@
-use crate::KernelContext;
+use crate::memory::{Frame, VirtualAddress};
 use core::arch::asm;
+use uefi_bootloader_api::BootInformation;
 
 pub(crate) mod memory;
 
@@ -7,10 +8,10 @@ pub(crate) mod memory;
 // when we switch page tables.
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) unsafe fn jump_to_kernel(
-    page_table_frame: *const (),
-    entry_point: *const (),
-    boot_info: *const (),
-    stack_top: *const (),
+    page_table_frame: Frame,
+    entry_point: VirtualAddress,
+    boot_info: &'static BootInformation,
+    stack_top: VirtualAddress,
 ) -> ! {
     // SAFETY: The caller guarantees that the context switch function is
     // identity-mapped, the stack pointer is mapped in the new page table, and the
@@ -18,9 +19,9 @@ pub(crate) unsafe fn jump_to_kernel(
     unsafe {
         asm!(
             "mov cr3, {}; mov rsp, {}; jmp {}",
-            in(reg) page_table_frame,
-            in(reg) stack_top,
-            in(reg) entry_point,
+            in(reg) page_table_frame.start_address().value(),
+            in(reg) stack_top.value(),
+            in(reg) entry_point.value(),
             in("rdi") boot_info,
             options(noreturn),
         );

@@ -15,12 +15,12 @@ impl BootContext {
             .open_file_system_root()
             .expect("failed to open file system root");
 
-        let mut dir = root
-            .open(cstr16!("modules"), FileMode::Read, FileAttribute::empty())
-            // TODO: Don't fail if modules don't exist.
-            .expect("failed to open modules directory")
-            .into_directory()
-            .expect("modules directory was closed or deleted");
+        let mut dir = match root.open(cstr16!("modules"), FileMode::Read, FileAttribute::empty()) {
+            Ok(dir) => dir
+                .into_directory()
+                .expect("modules directory was closed or deleted"),
+            Err(_) => return &mut [],
+        };
 
         let mut num_modules = 0;
         let mut num_pages = 0;
