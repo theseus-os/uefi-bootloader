@@ -44,7 +44,20 @@ pub(crate) const fn canonicalize_physical_address(phys_addr: usize) -> usize {
     phys_addr & 0x0000_FFFF_FFFF_FFFF
 }
 
-pub(crate) fn set_up_arch_specific_mappings(_: &mut RuntimeContext) {}
+pub(crate) fn set_up_arch_specific_mappings(context: &mut RuntimeContext) {
+    {
+        let flags = PteFlags::new()
+            .present(true)
+            .accessed(true)
+            .writable(true)
+            .page_descriptor(true)
+            .no_execute(true);
+
+        let top_level_frame = context.mapper.frame();
+        let top_level = &mut context.mapper.level_zero_page_table;
+        top_level[510].set(top_level_frame, flags);
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PteFlags(u64);
@@ -231,6 +244,7 @@ impl Mapper {
     {
         let page_table_flags = PteFlags::new()
             .present(true)
+            .accessed(true)
             .page_descriptor(true)
             .writable(true)
             .no_execute(true);
@@ -249,7 +263,7 @@ impl Mapper {
             level_2.create_next_table(page.p2_index(), page_table_flags, frame_allocator)
         };
 
-        level_3[page.p3_index()].set(frame, flags.page_descriptor(true));
+        level_3[page.p3_index()].set(frame, flags.accessed(true).page_descriptor(true));
 
         barrier::isb(barrier::SY);
     }
