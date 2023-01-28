@@ -45,18 +45,16 @@ pub(crate) const fn canonicalize_physical_address(phys_addr: usize) -> usize {
 }
 
 pub(crate) fn set_up_arch_specific_mappings(context: &mut RuntimeContext) {
-    {
-        let flags = PteFlags::new()
-            .present(true)
-            .accessed(true)
-            .writable(true)
-            .page_descriptor(true)
-            .no_execute(true);
+    let flags = PteFlags::new()
+        .present(true)
+        .accessed(true)
+        .writable(true)
+        .page_descriptor(true)
+        .no_execute(true);
 
-        let top_level_frame = context.mapper.frame();
-        let top_level = &mut context.mapper.level_zero_page_table;
-        top_level[510].set(top_level_frame, flags);
-    }
+    let top_level_frame = context.mapper.frame();
+    let top_level = &mut context.mapper.level_zero_page_table;
+    top_level[510].set(top_level_frame, flags);
 }
 
 #[derive(Clone, Copy, Debug)]
