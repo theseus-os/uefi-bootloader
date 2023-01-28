@@ -105,8 +105,13 @@ impl BootContext {
         let in_page_offset = (segment.p_vaddr as usize) & 0xfff;
         let size_from_page_start = in_page_offset + segment.p_memsz as usize;
 
-        // x86_64 .init section
-        let slice = if segment.p_paddr == 0x10_0000 {
+        #[cfg(target_arch = "x86_64")]
+        let x86_64_init_section = segment.p_paddr == 0x10_0000;
+
+        #[cfg(target_arch = "aarch64")]
+        let x86_64_init_section = false;
+
+        let slice = if x86_64_init_section {
             let maybe_uninit_slice = self.allocate_slice_inner(
                 size_from_page_start,
                 AllocateType::Address(0x10_0000),

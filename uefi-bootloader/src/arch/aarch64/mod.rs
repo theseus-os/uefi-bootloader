@@ -43,7 +43,7 @@ pub(crate) unsafe fn jump_to_kernel(
             "mov sp, {}",
             // jump to the entry point
             "br {}",
-            in(reg) 0usize,
+            in(reg) ASID_ZERO as usize,
             in(reg) stack_top.value(),
             in(reg) entry_point.value(),
             in("x0") boot_info,
