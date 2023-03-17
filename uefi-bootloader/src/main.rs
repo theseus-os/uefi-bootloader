@@ -106,11 +106,11 @@ struct KernelContext {
 fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
     let handle = system_table
         .boot_services()
-        .get_handle_for_protocol::<GraphicsOutput<'_>>()
+        .get_handle_for_protocol::<GraphicsOutput>()
         .ok()?;
     let mut gop = system_table
         .boot_services()
-        .open_protocol_exclusive::<GraphicsOutput<'_>>(handle)
+        .open_protocol_exclusive::<GraphicsOutput>(handle)
         .ok()?;
 
     let mode_info = gop.current_mode_info();

@@ -14,7 +14,7 @@ use uefi::{
         media::{file::Directory, fs::SimpleFileSystem},
     },
     table::{
-        boot::{AllocateType, MemoryMapSize, MemoryType},
+        boot::{AllocateType, MemoryType},
         Boot, SystemTable,
     },
     Handle,
@@ -171,20 +171,7 @@ impl BootContext {
     }
 
     pub(crate) fn exit_boot_services(self) -> RuntimeContext {
-        let MemoryMapSize {
-            entry_size,
-            map_size,
-        } = self.system_table.boot_services().memory_map_size();
-        let predicted_map_size = map_size + (4 * entry_size);
-
-        let memory_map_storage =
-            self.allocate_byte_slice(predicted_map_size, MemoryType::LOADER_DATA);
-
-        let (_, memory_map) = self
-            .system_table
-            .exit_boot_services(self.image_handle, memory_map_storage)
-            .expect("failed to exit boot services");
-
+        let (_, memory_map) = self.system_table.exit_boot_services();
         RuntimeContext {
             page_allocator: self.page_allocator,
             frame_allocator: LegacyFrameAllocator::new(memory_map),
