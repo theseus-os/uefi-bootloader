@@ -20,7 +20,9 @@ pub struct BootInformation {
 #[repr(C)]
 pub struct FrameBuffer {
     /// The framebuffer's physical address.
-    pub start: usize,
+    pub physical: usize,
+    /// The framebuffer's virtual address.
+    pub virt: usize,
     pub info: FrameBufferInfo,
 }
 

@@ -105,13 +105,15 @@ impl BootContext {
         let in_page_offset = (segment.p_vaddr as usize) & 0xfff;
         let size_from_page_start = in_page_offset + segment.p_memsz as usize;
 
-        #[cfg(target_arch = "x86_64")]
-        let x86_64_init_section = segment.p_paddr == 0x10_0000;
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "x86_64")] {
+                let is_x86_64_init_section = segment.p_paddr == 0x10_0000;
+            } else {
+                let is_x86_64_init_section = false;
+            }
+        }
 
-        #[cfg(target_arch = "aarch64")]
-        let x86_64_init_section = false;
-
-        let slice = if x86_64_init_section {
+        let slice = if is_x86_64_init_section {
             let maybe_uninit_slice = self.allocate_slice_inner(
                 size_from_page_start,
                 AllocateType::Address(0x10_0000),
@@ -128,7 +130,8 @@ impl BootContext {
         let virtual_start = VirtualAddress::new_canonical(segment.p_vaddr as usize);
         let virtual_end_inclusive = virtual_start + segment.p_memsz as usize - 1;
 
-        let physical_start = PhysicalAddress::new_canonical(slice.as_ptr() as usize + in_page_offset);
+        let physical_start =
+            PhysicalAddress::new_canonical(slice.as_ptr() as usize + in_page_offset);
         let physical_end_inclusive = physical_start + segment.p_memsz as usize - 1;
 
         let pages = PageRange::new(

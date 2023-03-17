@@ -1,29 +1,23 @@
-use crate::memory::{Frame, VirtualAddress};
+use crate::KernelContext;
 use core::arch::asm;
 use cortex_a::{
     asm::barrier,
     registers::{MAIR_EL1, SCTLR_EL1, TCR_EL1, TTBR0_EL1},
 };
 use tock_registers::interfaces::{ReadWriteable, Writeable};
-use uefi_bootloader_api::BootInformation;
 
 pub(crate) mod memory;
 
 // The function needs to take ownership of the context so that it remains valid
 // when we switch page tables.
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) unsafe fn jump_to_kernel(
-    page_table_frame: Frame,
-    entry_point: VirtualAddress,
-    boot_info: &'static BootInformation,
-    stack_top: VirtualAddress,
-) -> ! {
+pub(crate) unsafe fn jump_to_kernel(context: KernelContext) -> ! {
     // disable the MMU
     SCTLR_EL1.modify(SCTLR_EL1::M::Disable);
     barrier::isb(barrier::SY);
 
     // install the new page table
-    let page_table_addr = page_table_frame.start_address().value() as u64;
+    let page_table_addr = context.page_table_frame.start_address().value() as u64;
     TTBR0_EL1
         .write(TTBR0_EL1::ASID.val(ASID_ZERO.into()) + TTBR0_EL1::BADDR.val(page_table_addr >> 1));
 
@@ -44,9 +38,9 @@ pub(crate) unsafe fn jump_to_kernel(
             // jump to the entry point
             "br {}",
             in(reg) ASID_ZERO as usize,
-            in(reg) stack_top.value(),
-            in(reg) entry_point.value(),
-            in("x0") boot_info,
+            in(reg) context.stack_top.value(),
+            in(reg) context.entry_point.value(),
+            in("x0") context.boot_info,
             options(noreturn)
         )
     }

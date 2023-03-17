@@ -1,11 +1,14 @@
 use crate::{
     jump_to_kernel,
     memory::{Frame, FrameAllocator, Page, PhysicalAddress, PteFlags, VirtualAddress},
-    RuntimeContext,
+    FrameBuffer, RuntimeContext,
 };
 
 impl RuntimeContext {
-    pub(crate) fn set_up_mappings(&mut self) -> VirtualAddress {
+    pub(crate) fn set_up_mappings(
+        &mut self,
+        frame_buffer: Option<&mut FrameBuffer>,
+    ) -> VirtualAddress {
         // TODO: Enable nxe and write protect bits on x86_64.
 
         // TODO: Depend on kernel_config?
@@ -34,6 +37,34 @@ impl RuntimeContext {
                     .no_execute(true),
                 &mut self.frame_allocator,
             );
+        }
+
+        if let Some(frame_buffer) = frame_buffer {
+            let frame_buffer_start_address =
+                self.page_allocator.get_free_address(frame_buffer.info.size);
+            let frame_buffer_start = Page::containing_address(frame_buffer_start_address);
+            let frame_buffer_end = {
+                let end_address = frame_buffer_start_address + frame_buffer.info.size;
+                Page::containing_address(end_address - 1)
+            };
+
+            for page in frame_buffer_start..=frame_buffer_end {
+                let frame = self
+                    .frame_allocator
+                    .allocate_frame()
+                    .expect("failed to allocate stack frame");
+                self.mapper.map(
+                    page,
+                    frame,
+                    PteFlags::new()
+                        .present(true)
+                        .writable(true)
+                        .no_execute(true),
+                    &mut self.frame_allocator,
+                );
+            }
+
+            frame_buffer.virt = frame_buffer_start_address.value();
         }
 
         // Identity-map the context switch function so that when it switches to the new

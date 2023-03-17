@@ -17,7 +17,10 @@ mod memory;
 mod modules;
 mod util;
 
-use crate::arch::jump_to_kernel;
+use crate::{
+    arch::jump_to_kernel,
+    memory::{Frame, VirtualAddress},
+};
 use core::{fmt::Write, ptr::NonNull};
 use log::{error, info};
 use uefi::{
@@ -29,7 +32,7 @@ use uefi::{
     },
     Handle, Status,
 };
-use uefi_bootloader_api::{FrameBuffer, FrameBufferInfo, PixelFormat};
+use uefi_bootloader_api::{BootInformation, FrameBuffer, FrameBufferInfo, PixelFormat};
 
 pub(crate) use context::{BootContext, RuntimeContext};
 
@@ -46,10 +49,10 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
         .clear()
         .expect("failed to clear stdout");
 
-    let frame_buffer = get_frame_buffer(&system_table);
+    let mut frame_buffer = get_frame_buffer(&system_table);
     if let Some(frame_buffer) = frame_buffer {
         init_logger(&frame_buffer);
-        info!("using framebuffer at {:#x}", frame_buffer.start);
+        info!("using framebuffer at {:#x}", frame_buffer.physical);
     }
 
     // SAFETY: We are the sole thread.
@@ -67,7 +70,7 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let mut context = context.exit_boot_services();
 
-    let stack_top = context.set_up_mappings();
+    let stack_top = context.set_up_mappings(frame_buffer.as_mut());
     info!("created memory mappings");
 
     let page_table_frame = context.page_table();
@@ -81,7 +84,23 @@ fn main(handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     info!("about to jump to kernel: {:x?}", entry_point.value());
     // SAFETY: Everything is correctly mapped.
-    unsafe { jump_to_kernel(page_table_frame, entry_point, boot_info, stack_top) };
+    unsafe {
+        jump_to_kernel(KernelContext {
+            page_table_frame,
+            stack_top,
+            entry_point,
+            boot_info,
+        })
+    }
+}
+
+// The context necessary to switch to the kernel.
+#[derive(Debug)]
+struct KernelContext {
+    page_table_frame: Frame,
+    stack_top: VirtualAddress,
+    entry_point: VirtualAddress,
+    boot_info: &'static BootInformation,
 }
 
 fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
@@ -112,7 +131,8 @@ fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
     };
 
     Some(FrameBuffer {
-        start: frame_buffer.as_mut_ptr() as usize,
+        physical: frame_buffer.as_mut_ptr() as usize,
+        virt: 0,
         info,
     })
 }
@@ -120,7 +140,7 @@ fn get_frame_buffer(system_table: &SystemTable<Boot>) -> Option<FrameBuffer> {
 fn init_logger(frame_buffer: &FrameBuffer) {
     // SAFETY: The hardware initialised the frame buffer.
     let slice = unsafe {
-        core::slice::from_raw_parts_mut(frame_buffer.start as *mut _, frame_buffer.info.size)
+        core::slice::from_raw_parts_mut(frame_buffer.physical as *mut _, frame_buffer.info.size)
     };
     let logger =
         logger::LOGGER.call_once(move || logger::LockedLogger::new(slice, frame_buffer.info));
