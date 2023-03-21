@@ -42,17 +42,24 @@ impl RuntimeContext {
         if let Some(frame_buffer) = frame_buffer {
             let frame_buffer_start_address =
                 self.page_allocator.get_free_address(frame_buffer.info.size);
-            let frame_buffer_start = Page::containing_address(frame_buffer_start_address);
-            let frame_buffer_end = {
-                let end_address = frame_buffer_start_address + frame_buffer.info.size;
+            let frame_buffer_virtual_start = Page::containing_address(frame_buffer_start_address);
+            let frame_buffer_virtual_end = {
+                let end_address =
+                    frame_buffer_virtual_start.start_address() + frame_buffer.info.size;
                 Page::containing_address(end_address - 1)
             };
 
-            for page in frame_buffer_start..=frame_buffer_end {
-                let frame = self
-                    .frame_allocator
-                    .allocate_frame()
-                    .expect("failed to allocate stack frame");
+            let frame_buffer_physical_start =
+                Frame::containing_address(PhysicalAddress::new_canonical(frame_buffer.physical));
+            let frame_buffer_physical_end = {
+                let end_address =
+                    frame_buffer_physical_start.start_address() + frame_buffer.info.size;
+                Frame::containing_address(end_address - 1)
+            };
+
+            for (page, frame) in (frame_buffer_virtual_start..=frame_buffer_virtual_end)
+                .zip(frame_buffer_physical_start..frame_buffer_physical_end)
+            {
                 self.mapper.map(
                     page,
                     frame,
