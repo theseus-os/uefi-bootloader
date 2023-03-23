@@ -23,6 +23,17 @@ pub(crate) unsafe fn jump_to_kernel(context: KernelContext) -> ! {
 
     configure_translation_registers();
 
+    // unpack the KernelContext while we can use the stack
+    unsafe {
+        asm!(
+            "",
+            in("x3") ASID_ZERO as usize,
+            in("x2") context.stack_top.value(),
+            in("x1") context.entry_point.value(),
+            in("x0") context.boot_info,
+        )
+    }
+
     // re-enable the MMU
     barrier::isb(barrier::SY);
     SCTLR_EL1.modify(SCTLR_EL1::M::Enable);
@@ -32,15 +43,11 @@ pub(crate) unsafe fn jump_to_kernel(context: KernelContext) -> ! {
     unsafe {
         asm!(
             // flush the TLB
-            "tlbi aside1, {}",
+            "tlbi aside1, x3",
             // set the stack pointer
-            "mov sp, {}",
+            "mov sp, x2",
             // jump to the entry point
-            "br {}",
-            in(reg) ASID_ZERO as usize,
-            in(reg) context.stack_top.value(),
-            in(reg) context.entry_point.value(),
-            in("x0") context.boot_info,
+            "br x1",
             options(noreturn)
         )
     }
